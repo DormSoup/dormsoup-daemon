@@ -4,9 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "ts-node src/main.ts",
+    "start": "ts-node --esm src/main.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mit-hakken/hakken-daemon.git"
@@ -23,6 +24,7 @@
     "@types/express": "^4.17.17",
     "@types/http-status-codes": "^1.2.0",
     "@types/imapflow": "^1.0.12",
+    "@types/mailparser": "^3.4.0",
     "@types/node": "^18.15.13",
     "@typescript-eslint/eslint-plugin": "^5.59.0",
     "eslint": "^8.39.0",
@@ -41,6 +43,7 @@
     "express-async-handler": "^1.2.0",
     "http-status-codes": "^2.2.0",
     "imapflow": "^1.0.128",
+    "mailparser": "^3.6.4",
     "open": "^9.1.0",
     "openai": "^3.2.1"
   }

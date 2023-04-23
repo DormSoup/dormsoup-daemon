@@ -11,6 +11,8 @@ import fs from "fs";
 import HttpStatus from "http-status-codes";
 import https from "https";
 import { ImapFlow } from "imapflow";
+import { simpleParser } from "mailparser";
+import open from "open";
 
 type AuthResult = { user: string; accessToken: string };
 
@@ -35,14 +37,20 @@ async function authenticate(): Promise<AuthResult> {
         codeChallenge: challenge,
         codeChallengeMethod: "S256"
     };
-    pca.getAuthCodeUrl(authCodeRequest)
-        .then((response) => {
-            console.log(response);
-        })
-        .catch((error) => console.log(JSON.stringify(error)));
-    const app = express();
+
+    let reject: (reason: any) => void;
     let resolve: (value: AuthResult | Promise<AuthResult>) => void;
-    const promise = new Promise<AuthResult>((res) => (resolve = res));
+    const promise = new Promise<AuthResult>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    const [privateKey, publicKey, _] = await Promise.all([
+        fs.promises.readFile("selfsigned.key", "utf8"),
+        fs.promises.readFile("selfsigned.crt", "utf8"),
+        pca.getAuthCodeUrl(authCodeRequest).then((response) => open(response))
+    ]);
+
+    const app = express();
     app.use(express.urlencoded({ extended: false }));
     app.get(
         "/",
@@ -55,19 +63,18 @@ async function authenticate(): Promise<AuthResult> {
                 clientInfo: req.query.client_info as string
             };
             const response = await pca.acquireTokenByCode(tokenRequest);
-            res.status(HttpStatus.OK).send(response.accessToken);
-            console.log(response.accessToken);
-            server.close(() => {
+            res.status(HttpStatus.OK).type("text").send(response.accessToken);
+            server.close((error) => {
+                if (error !== undefined) {
+                    reject(error);
+                    return;
+                }
+                console.log("Successfully authenticated with token", response.accessToken);
                 resolve({ user: response.account!.username, accessToken: response.accessToken });
             });
         })
     );
-    const [privateKey, publicKey] = await Promise.all([
-        fs.promises.readFile("selfsigned.key", "utf8"),
-        fs.promises.readFile("selfsigned.crt", "utf8")
-    ]);
-    const server = https.createServer({ key: privateKey, cert: publicKey }, app);
-    server.listen(443);
+    const server = https.createServer({ key: privateKey, cert: publicKey }, app).listen(443);
     return promise;
 }
 
@@ -76,35 +83,51 @@ export default async function main() {
         host: "outlook.office365.com",
         port: 993,
         secure: true,
-        auth: await authenticate()
+        auth: await authenticate(),
+        logger: false
     });
 
-    // Wait until client connects and authorizes
     await client.connect();
 
-    // Select and lock a mailbox. Throws if mailbox does not exist
     let lock = await client.getMailboxLock("INBOX");
     try {
-        // fetch latest message source
-        // client.mailbox includes information about currently selected mailbox
-        // "exists" value is also the largest sequence number available in the mailbox
         assert(typeof client.mailbox !== "boolean");
         console.log(`Mailbox has ${client.mailbox.exists} messages`);
-        let message = await client.fetchOne(`${client.mailbox.exists}`, { source: true });
-        console.log(message.source.toString());
-
-        // list subjects for all messages
-        // uid value is always included in FETCH response, envelope strings are in unicode.
-        for await (let message of client.fetch("1:*", { envelope: true })) {
-            console.log(`${message.uid}: ${message.envelope.subject}`);
+        const since = new Date();
+        since.setDate(new Date().getDate() - 30);
+        const uids = await client.search({ sentSince: since }, { uid: true });
+        console.log(`Received ${uids.length} mails in the past 30 days`);
+        // See https://how-to-dormspam.mit.edu/.
+        const dormspamKeywords = [
+            "bcc'd to all dorms",
+            "bcc's to all dorms",
+            "bcc'd to dorms",
+            "bcc'ed dorms",
+            "bcc'ed to dorms",
+            "bcc to dorms",
+            "bcc'd to everyone",
+            "bcc dormlists",
+            "bcc to dormlists",
+            "for bc-talk"
+        ];
+        for await (let message of client.fetch(
+            uids,
+            {
+                uid: true,
+                envelope: true,
+                source: true
+            },
+            { uid: true, changedSince: 0n }
+        )) {
+            const parsed = await simpleParser(message.source, { skipImageLinks: true });
+            if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
+                console.log(`${message.uid}: ${message.envelope.subject}`);
+            }
         }
     } finally {
-        // Make sure lock is released, otherwise next `getMailboxLock()` never returns
         lock.release();
     }
-
-    // log out and close connection
     await client.logout();
 }
 
-main();
+await main();
