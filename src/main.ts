@@ -14,9 +14,18 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import open from "open";
 
-type AuthResult = { user: string; accessToken: string };
+type AuthResult = { user: string; accessToken: string; expiresOn: number };
 
 async function authenticate(): Promise<AuthResult> {
+    const cacheFile = ".token.json";
+    try {
+        const cached = JSON.parse(
+            (await fs.promises.readFile(cacheFile)).toString()
+        ) as AuthResult;
+        const current = new Date().getTime();
+        if (current < cached.expiresOn) return cached;
+    } catch {}
+
     const clientConfig = {
         auth: {
             // Shamelessly pillaged from Thunderbird.
@@ -70,7 +79,15 @@ async function authenticate(): Promise<AuthResult> {
                     return;
                 }
                 console.log("Successfully authenticated with token", response.accessToken);
-                resolve({ user: response.account!.username, accessToken: response.accessToken });
+                const result: AuthResult = {
+                    user: response.account!.username,
+                    accessToken: response.accessToken,
+                    expiresOn: response.expiresOn!.getTime()
+                };
+                fs.promises
+                    .writeFile(cacheFile, JSON.stringify(result))
+                    .then(() => resolve(result))
+                    .catch(reject);
             });
         })
     );
