@@ -19,9 +19,7 @@ type AuthResult = { user: string; accessToken: string; expiresOn: number };
 async function authenticate(): Promise<AuthResult> {
     const cacheFile = ".token.json";
     try {
-        const cached = JSON.parse(
-            (await fs.promises.readFile(cacheFile)).toString()
-        ) as AuthResult;
+        const cached = JSON.parse((await fs.promises.readFile(cacheFile)).toString()) as AuthResult;
         const current = new Date().getTime();
         if (current < cached.expiresOn) return cached;
     } catch {}
