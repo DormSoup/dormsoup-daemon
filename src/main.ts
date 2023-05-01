@@ -7,14 +7,17 @@ import {
 import assert from "assert";
 import express from "express";
 import asyncHandler from "express-async-handler";
-import fs from "fs";
+import fs, { write } from "fs";
 import HttpStatus from "http-status-codes";
 import https from "https";
 import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
+import { ParsedMail, simpleParser } from "mailparser";
 import open from "open";
+import { extractFromEmail, Event } from "./llm.js"; // idk why this has to be js - I had to change tsconfig.json just to make import work
 
 type AuthResult = { user: string; accessToken: string; expiresOn: number };
+
+const NUM_OF_EMAILS_TO_FETCH = 20;
 
 async function authenticate(): Promise<AuthResult> {
     const cacheFile = ".token.json";
@@ -125,6 +128,9 @@ export default async function main() {
             "bcc to dormlists",
             "for bc-talk"
         ];
+        let fetchLeft = NUM_OF_EMAILS_TO_FETCH;
+        const fetchPromises: Promise<void>[] = []; // for concurrency. LLM is slow.
+
         for await (let message of client.fetch(
             uids,
             {
@@ -136,7 +142,13 @@ export default async function main() {
         )) {
             const parsed = await simpleParser(message.source, { skipImageLinks: true });
             if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
-                console.log(`${message.uid}: ${message.envelope.subject}`);
+                fetchPromises.push(writeItDown(message.uid, parsed));
+                fetchLeft--;
+                if(fetchLeft == 0)
+                {
+                    await Promise.all(fetchPromises);
+                    break;
+                }
             }
         }
     } finally {
@@ -145,4 +157,34 @@ export default async function main() {
     await client.logout();
 }
 
-await main();
+/**
+ * Extracts the event from the parsed email
+ *
+ * @param parsed the parsed email
+ * @returns an event object
+ */
+async function processParsedEmail(parsed: ParsedMail) {
+    const subject = parsed.subject ?? "No subject";
+    const text = parsed.text ?? "No text";
+    const dateReceived = parsed.date ?? assert.fail("No date received");
+    const extractedEvent: Event = await extractFromEmail(subject, text, dateReceived)
+    return extractedEvent;
+}
+
+/**
+ * Writes the email and the extracted event to a file
+ *
+ * @param messageID the message uid. Used as the filename
+ * @param parsed the parsed email
+ */
+async function writeItDown(messageID: number, parsed: ParsedMail) {
+    const extractedEvent = await processParsedEmail(parsed);
+    if (!fs.existsSync('testmails')) {
+        fs.mkdirSync('testmails');
+    }
+    const emailPromise = fs.promises.writeFile(`testmails/${messageID}.eml`, `Subject: ${parsed.subject}\nBody:\n${parsed.text}`);
+    const jsonPromise = fs.promises.writeFile(`testmails/${messageID}.json`, JSON.stringify(extractedEvent, null, 4));
+    await Promise.all([emailPromise, jsonPromise]);
+}
+
+void main();

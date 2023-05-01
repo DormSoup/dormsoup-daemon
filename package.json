@@ -2,9 +2,10 @@
   "name": "hakken-daemon",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "main.ts",
   "scripts": {
     "start": "ts-node --esm src/main.ts",
+    "llm": "ts-node --esm src/llm.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",
@@ -38,6 +39,7 @@
   },
   "dependencies": {
     "@azure/msal-node": "^1.17.1",
+    "chatgpt": "^5.2.2",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-async-handler": "^1.2.0",
