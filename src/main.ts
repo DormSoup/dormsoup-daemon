@@ -2,30 +2,39 @@ import {
     AuthorizationCodeRequest,
     AuthorizationUrlRequest,
     CryptoProvider,
-    PublicClientApplication
+    PublicClientApplication,
 } from "@azure/msal-node";
+import {
+    DataProtectionScope,
+    IPersistenceConfiguration,
+    PersistenceCachePlugin,
+    PersistenceCreator
+} from "@azure/msal-node-extensions";
 import assert from "assert";
 import express from "express";
 import asyncHandler from "express-async-handler";
-import fs, { write } from "fs";
+import fs from "fs";
 import HttpStatus from "http-status-codes";
 import https from "https";
 import { ImapFlow } from "imapflow";
 import { ParsedMail, simpleParser } from "mailparser";
-import open from "open";
-import { extractFromEmail, Event } from "./llm.js"; // idk why this has to be js - I had to change tsconfig.json just to make import work
+
+import { Event, extractFromEmail } from "./llm.js";
 
 type AuthResult = { user: string; accessToken: string; expiresOn: number };
 
 const NUM_OF_EMAILS_TO_FETCH = 20;
 
 async function authenticate(): Promise<AuthResult> {
-    const cacheFile = ".token.json";
-    try {
-        const cached = JSON.parse((await fs.promises.readFile(cacheFile)).toString()) as AuthResult;
-        const current = new Date().getTime();
-        if (current < cached.expiresOn) return cached;
-    } catch {}
+    const cachePath = ".token.json";
+    const persistentConfig: IPersistenceConfiguration = {
+        cachePath,
+        dataProtectionScope: DataProtectionScope.CurrentUser,
+        serviceName: "hakken",
+        accountName: "ubuntu",
+        usePlaintextFileOnLinux: true
+    };
+    const persistence = await PersistenceCreator.createPersistence(persistentConfig);
 
     const clientConfig = {
         auth: {
@@ -33,10 +42,34 @@ async function authenticate(): Promise<AuthResult> {
             // See https://hg.mozilla.org/releases/comm-esr102/file/tip/mailnews/base/src/OAuth2Providers.jsm
             clientId: "9e5f94bc-e8a4-4e73-b8be-63364c29d753",
             authority: "https://login.microsoftonline.com/common"
+        },
+        cache: {
+            cachePlugin: new PersistenceCachePlugin(persistence)
         }
     };
     const pca = new PublicClientApplication(clientConfig);
     const scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All"];
+
+    try {
+        const accounts = await pca.getAllAccounts();
+        if (accounts.length > 0) {
+            console.log("Attempting to acquire token silently for user", accounts[0].username);
+            const response = await pca.acquireTokenSilent({
+                account: accounts[0],
+                scopes
+            });
+            if (response !== null) {
+                console.log("Acquired token silently for user", accounts[0].username);
+                return {
+                    user: response.account!.username,
+                    accessToken: response.accessToken,
+                    expiresOn: response.expiresOn!.getTime()
+                };
+            }
+        }
+    } catch {}
+    console.log("No cache or silent flow failed. Starting interactive flow...");
+
     const redirectUri = `https://localhost`;
     const cryptoProvider = new CryptoProvider();
     const { verifier, challenge } = await cryptoProvider.generatePkceCodes();
@@ -81,16 +114,13 @@ async function authenticate(): Promise<AuthResult> {
                     reject(error);
                     return;
                 }
-                console.log("Successfully authenticated with token", response.accessToken);
+                console.log("Successfully authenticated");
                 const result: AuthResult = {
                     user: response.account!.username,
                     accessToken: response.accessToken,
                     expiresOn: response.expiresOn!.getTime()
                 };
-                fs.promises
-                    .writeFile(cacheFile, JSON.stringify(result))
-                    .then(() => resolve(result))
-                    .catch(reject);
+                resolve(result);
             });
         })
     );
@@ -145,9 +175,7 @@ export default async function main() {
             const parsed = await simpleParser(message.source, { skipImageLinks: true });
             if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
                 fetchPromises.push(writeItDown(message.uid, parsed));
-                fetchLeft--;
-                if(fetchLeft == 0)
-                {
+                if (--fetchLeft == 0) {
                     await Promise.all(fetchPromises);
                     break;
                 }
@@ -169,7 +197,7 @@ async function processParsedEmail(parsed: ParsedMail) {
     const subject = parsed.subject ?? "No subject";
     const text = parsed.text ?? "No text";
     const dateReceived = parsed.date ?? assert.fail("No date received");
-    const extractedEvent: Event = await extractFromEmail(subject, text, dateReceived)
+    const extractedEvent: Event = await extractFromEmail(subject, text, dateReceived);
     return extractedEvent;
 }
 
@@ -181,12 +209,18 @@ async function processParsedEmail(parsed: ParsedMail) {
  */
 async function writeItDown(messageID: number, parsed: ParsedMail) {
     const extractedEvent = await processParsedEmail(parsed);
-    if (!fs.existsSync('testmails')) {
-        fs.mkdirSync('testmails');
+    if (!fs.existsSync("testmails")) {
+        fs.mkdirSync("testmails");
     }
-    const emailPromise = fs.promises.writeFile(`testmails/${messageID}.eml`, `Subject: ${parsed.subject}\nBody:\n${parsed.text}`);
-    const jsonPromise = fs.promises.writeFile(`testmails/${messageID}.json`, JSON.stringify(extractedEvent, null, 4));
+    const emailPromise = fs.promises.writeFile(
+        `testmails/${messageID}.eml`,
+        `Subject: ${parsed.subject}\nBody:\n${parsed.text}`
+    );
+    const jsonPromise = fs.promises.writeFile(
+        `testmails/${messageID}.json`,
+        JSON.stringify(extractedEvent, null, 4)
+    );
     await Promise.all([emailPromise, jsonPromise]);
 }
 
-void main();
+await main();
