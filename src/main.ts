@@ -57,7 +57,9 @@ async function authenticate(): Promise<AuthResult> {
     const [privateKey, publicKey, _] = await Promise.all([
         fs.promises.readFile("selfsigned.key", "utf8"),
         fs.promises.readFile("selfsigned.crt", "utf8"),
-        pca.getAuthCodeUrl(authCodeRequest).then((response) => open(response))
+        pca.getAuthCodeUrl(authCodeRequest).then((response) => {
+            console.log(response);
+        })
     ]);
 
     const app = express();
