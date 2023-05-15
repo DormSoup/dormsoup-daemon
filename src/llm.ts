@@ -1,20 +1,26 @@
-import { ChatGPTAPI } from "chatgpt";
 import assert from "assert";
-import { config } from "dotenv";
-config();
+import { ChatGPTAPI } from "chatgpt";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const LIST_OF_PROPERTIES = ["Event", "Title", "Date", "Time", "Location", "Organizer"];
-export type Event = {Event: boolean, Title: string, Date: string, Time: string, Location: string, Organizer: string};
+export type Event = {
+    Event: boolean;
+    Title: string;
+    Date: string;
+    Time: string;
+    Location: string;
+    Organizer: string;
+};
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 assert(OPENAI_API_KEY !== undefined, "OPENAI_API_KEY environment variable must be set");
 const api = new ChatGPTAPI({
-    apiKey: OPENAI_API_KEY,
+    apiKey: OPENAI_API_KEY
 });
 
-
-const PROMPT_INTRO = 
-`Identify the following items from the email below:
+const PROMPT_INTRO = `Identify the following items from the email below:
 - Whether the email is inviting you to an event (true or false boolean value)
 - The title of the event (up to five words)
 - The date of the event (in mm/dd/yyyy format, the date received might help with your inference when the exact date is absent)
@@ -37,8 +43,7 @@ Email text:
 `;
 
 function assemblePrompt(subject: string, body: string, dateReceived: Date) {
-    const prompt = 
-`${PROMPT_INTRO}\`\`\`
+    const prompt = `${PROMPT_INTRO}\`\`\`
 Subject: ${subject}
 Date Received: ${dateReceived}
 Body:
@@ -49,30 +54,41 @@ ${body}
 
 /**
  * Extracts the event information from an email.
- * 
+ *
  * @param subject the subject of the email
  * @param body the body of the email
  * @param dateReceived the date the email was received. This is used to infer the date of the event if the email does not contain the information.
  * @returns an Event object. If the email does not contain the information or the LLM made mistakes, the value is "unknown".
  */
-export async function extractFromEmail(subject: string, body: string, dateReceived: Date): Promise<Event> {
+export async function extractFromEmail(
+    subject: string,
+    body: string,
+    dateReceived: Date
+): Promise<Event> {
     const prompt = assemblePrompt(subject, body, dateReceived);
 
     const res = await api.sendMessage(prompt);
     try {
         const eventObj: Event = JSON.parse(res.text);
-        for(const properties of LIST_OF_PROPERTIES) {
-            assert(properties in eventObj, `The key ${properties} is not present in the LLM response`);
+        for (const properties of LIST_OF_PROPERTIES) {
+            assert(
+                properties in eventObj,
+                `The key ${properties} is not present in the LLM response`
+            );
         }
         return eventObj;
-    }
-    catch (e) {
+    } catch (e) {
         console.log("Cannot parse JSON:", res.text);
-        return {Event: false, Title: "unknown", Date: "unknown", Time: "unknown", Location: "unknown", Organizer: "unknown"};
+        return {
+            Event: false,
+            Title: "unknown",
+            Date: "unknown",
+            Time: "unknown",
+            Location: "unknown",
+            Organizer: "unknown"
+        };
     }
-    
 }
-
 
 // const testBody = `
 // Hi everyone,
@@ -88,7 +104,6 @@ export async function extractFromEmail(subject: string, body: string, dateReceiv
 // Courtney Lunger
 // Publicity Coordinator
 // MIT Ballroom Dance Team
-
 
 // Bcc'ed to dorms, pink flower for bc-talk
 // `;
