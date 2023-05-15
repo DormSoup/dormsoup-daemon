@@ -130,11 +130,12 @@ async function authenticate(): Promise<AuthResult> {
 }
 
 export default async function main() {
+    const auth = await authenticate();
     const client = new ImapFlow({
         host: "outlook.office365.com",
         port: 993,
         secure: true,
-        auth: await authenticate(),
+        auth,
         logger: false
     });
 
@@ -179,6 +180,8 @@ export default async function main() {
         )) {
             const parsed = await simpleParser(message.source, { skipImageLinks: true });
             if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
+                await addMail(prisma, auth.user, message.uid, parsed);
+                /*
                 const sender = parsed.from?.value[0];
                 const { messageId, from } = parsed;
                 if (sender === undefined || sender.address === undefined) continue;
@@ -190,10 +193,10 @@ export default async function main() {
                     },
                     update: { name: sender.name || sender.address }
                 });
-
-                // fetchPromises.push(writeItDown(message.uid, parsed));
+                */
+                fetchPromises.push(writeItDown(message.uid, parsed));
                 if (--fetchLeft == 0) {
-                    // await Promise.all(fetchPromises);
+                    await Promise.all(fetchPromises);
                     break;
                 }
             }
@@ -202,6 +205,46 @@ export default async function main() {
         lock.release();
     }
     await client.logout();
+}
+
+async function addMail(
+    prisma: PrismaClient,
+    scrapedBy: string,
+    uid: number,
+    parsed: ParsedMail
+): Promise<void> {
+    const { messageId, from, html } = parsed;
+    if (messageId === undefined || from === undefined || html === undefined) return;
+    const sender = from.value[0];
+    if (sender.address === undefined) return;
+    const senderAddress = sender.address;
+    const senderName = sender.name ?? senderAddress;
+
+    const email = await prisma.email.upsert({
+        where: { messageId },
+        create: {
+            messageId,
+            scrapedBy,
+            uid,
+            sender: {
+                connectOrCreate: {
+                    where: { email: senderAddress },
+                    create: {
+                        email: senderAddress,
+                        name: senderName
+                    }
+                }
+            },
+            body: !html ? "" : html,
+            receivedAt: parsed.date ?? new Date(),
+            inReplyTo: {
+                connect: {
+                    messageId: parsed.inReplyTo
+                }
+            }
+        },
+        update: {}
+    });
 }
 
 /**

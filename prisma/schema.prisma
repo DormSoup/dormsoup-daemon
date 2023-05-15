@@ -46,7 +46,7 @@ model Email {
   receivedAt  DateTime
   sender      EmailSender @relation(fields: [senderEmail], references: [email])
   senderEmail String
-  body        Bytes
+  body        String
 
   event Event? // Andi: if we agree that emails can have multiple events, then this should be Event[], and this should have a relational constraint?
 }
