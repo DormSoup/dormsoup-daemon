@@ -36,12 +36,14 @@
     "eslint-plugin-n": "^15.7.0",
     "eslint-plugin-promise": "^6.1.1",
     "prettier": "^2.8.7",
+    "prisma": "^4.14.0",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.4"
   },
   "dependencies": {
     "@azure/msal-node": "^1.17.1",
     "@azure/msal-node-extensions": "^1.0.0-alpha.34",
+    "@prisma/client": "^4.14.0",
     "chatgpt": "^5.2.2",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",

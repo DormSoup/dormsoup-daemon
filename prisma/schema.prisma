@@ -1,0 +1,59 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DataSource {
+  DORMSPAM
+}
+
+model Event {
+  id          Int        @id @default(autoincrement())
+  source      DataSource
+  // For dormspam, this is the email that the event was scraped from.
+  fromEmail   Email?     @relation(fields: [fromEmailId], references: [messageId])
+  fromEmailId String?    @unique // Andi: should this be unique? what if we have multiple events from the same email? e.g. departmental newsletters
+
+  title     String
+  organizer String
+  date      DateTime
+  location  String
+  summary   String
+
+  // The name of the model-prompt used to process this event. E.g. "GPT3.5-prompt-0514"
+  // In this way when we get better models we can reprocess the same events with the new model.
+  modelName String
+}
+
+model Email {
+  // The account used to scrape the email, i.e., macy404@mit.edu
+  scrapedBy String
+  // The uid of this email in the account's mailbox.
+  uid       Int
+
+  messageId   String  @id
+  inReplyTo   Email?  @relation("InReplyTo", fields: [inReplyToId], references: [messageId])
+  inReplyToId String?
+  replies     Email[] @relation("InReplyTo") // Andi: you just need to say @relation("InReplyTo") and that is it?
+
+  receivedAt  DateTime
+  sender      EmailSender @relation(fields: [senderEmail], references: [email])
+  senderEmail String
+  body        Bytes
+
+  event Event? // Andi: if we agree that emails can have multiple events, then this should be Event[], and this should have a relational constraint?
+}
+
+model EmailSender {
+  // Andi: if we want our users to be able to sign in, should we change this to be a User model, and then add a liked events field to the User model?
+  email  String  @id
+  name   String?
+  emails Email[]
+}

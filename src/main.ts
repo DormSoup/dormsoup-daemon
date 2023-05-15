@@ -2,7 +2,7 @@ import {
     AuthorizationCodeRequest,
     AuthorizationUrlRequest,
     CryptoProvider,
-    PublicClientApplication,
+    PublicClientApplication
 } from "@azure/msal-node";
 import {
     DataProtectionScope,
@@ -10,6 +10,7 @@ import {
     PersistenceCachePlugin,
     PersistenceCreator
 } from "@azure/msal-node-extensions";
+import { PrismaClient } from "@prisma/client";
 import assert from "assert";
 import express from "express";
 import asyncHandler from "express-async-handler";
@@ -137,6 +138,8 @@ export default async function main() {
         logger: false
     });
 
+    const prisma = new PrismaClient();
+    const maxUid = (await prisma.email.aggregate({ _max: { uid: true } }))._max.uid ?? 0;
     await client.connect();
 
     let lock = await client.getMailboxLock("INBOX");
@@ -145,7 +148,9 @@ export default async function main() {
         console.log(`Mailbox has ${client.mailbox.exists} messages`);
         const since = new Date();
         since.setDate(new Date().getDate() - 30);
-        const uids = await client.search({ sentSince: since }, { uid: true });
+        const uids = (await client.search({ sentSince: since }, { uid: true })).filter(
+            (uid) => uid > maxUid
+        );
         console.log(`Received ${uids.length} mails in the past 30 days`);
         // See https://how-to-dormspam.mit.edu/.
         const dormspamKeywords = [
@@ -174,9 +179,21 @@ export default async function main() {
         )) {
             const parsed = await simpleParser(message.source, { skipImageLinks: true });
             if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
-                fetchPromises.push(writeItDown(message.uid, parsed));
+                const sender = parsed.from?.value[0];
+                const { messageId, from } = parsed;
+                if (sender === undefined || sender.address === undefined) continue;
+                const senderModel = await prisma.emailSender.upsert({
+                    where: { email: sender.address },
+                    create: {
+                        email: sender.address,
+                        name: sender.name || sender.address
+                    },
+                    update: { name: sender.name || sender.address }
+                });
+
+                // fetchPromises.push(writeItDown(message.uid, parsed));
                 if (--fetchLeft == 0) {
-                    await Promise.all(fetchPromises);
+                    // await Promise.all(fetchPromises);
                     break;
                 }
             }
