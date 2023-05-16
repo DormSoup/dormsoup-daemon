@@ -1,7 +1,7 @@
 import assert from "assert";
 import dedent from "dedent";
 import dotenv from "dotenv";
-import HttpStatusCode from "http-status-codes";
+import HttpStatus from "http-status-codes";
 import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
@@ -45,16 +45,6 @@ const PROMPT_INTRO = dedent`
     Email text:
 `;
 
-function assemblePrompt(subject: string, body: string, dateReceived: Date) {
-    const prompt = `${PROMPT_INTRO}\`\`\`
-Subject: ${subject}
-Date Received: ${dateReceived}
-Body:
-${body}
-\`\`\``;
-    return prompt;
-}
-
 /**
  * Extracts the event information from an email.
  *
@@ -66,41 +56,47 @@ ${body}
 export async function extractFromEmail(
     subject: string,
     body: string,
-    dateReceived: Date
+    dateReceived: Date,
+    debugMode: boolean = false
 ): Promise<Event> {
     let response;
     let backOff = 1000;
+    const assembledPrompt = dedent`
+        \`\`\`
+        Subject: ${subject}
+        Date Received: ${dateReceived}
+        Body:
+        ${body}
+        \`\`\`                
+    `;
+
+    if (debugMode) console.log("Assembled prompt:", assembledPrompt);
+
     while (true) {
         response = await openai.createChatCompletion(
             {
                 model: "gpt-3.5-turbo",
                 messages: [
                     { role: "system", content: PROMPT_INTRO },
-                    {
-                        role: "user",
-                        content: dedent`
-                            \`\`\`
-                            Subject: ${subject}
-                            Date Received: ${dateReceived}
-                            Body:
-                            ${body}
-                            \`\`\`                
-                        `
-                    }
+                    { role: "user", content: assembledPrompt }
                 ]
             },
             { validateStatus: () => true }
         );
-        if (response.status === HttpStatusCode.OK) break;
-        if (response.status === HttpStatusCode.TOO_MANY_REQUESTS) {
+        if (response.status === HttpStatus.OK) break;
+        if (response.status === HttpStatus.TOO_MANY_REQUESTS) {
+            if (debugMode) console.warn(`Rate limited. Retrying in ${backOff} ms...`);
             await new Promise((resolve) => setTimeout(resolve, backOff));
             backOff *= 1.5;
-        } else throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
+        } else
+            throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     }
     const completion = response.data.choices[0];
     assert(completion.finish_reason === "stop", "OpenAI API call failed");
     const completionText = completion.message?.content;
     assert(completionText !== undefined);
+
+    if (debugMode) console.log("Completion text:", completionText);
 
     try {
         const event: Event = JSON.parse(completionText);
@@ -108,6 +104,7 @@ export async function extractFromEmail(
             assert(properties in event, `The key ${properties} is not present in the LLM response`);
             if (properties === "dateTime") {
                 event.dateTime = new Date(event.dateTime as unknown as string);
+                void event.dateTime.toISOString();
             }
         }
         return event;
