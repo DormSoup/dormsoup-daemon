@@ -1,45 +1,48 @@
 import assert from "assert";
-import { ChatGPTAPI } from "chatgpt";
+import dedent from "dedent";
 import dotenv from "dotenv";
+import HttpStatusCode from "http-status-codes";
+import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
+export const CURRENT_MODEL_NAME = "GPT-3.5-051523";
 
-const LIST_OF_PROPERTIES = ["Event", "Title", "Date", "Time", "Location", "Organizer"];
-export type Event = {
-    Event: boolean;
-    Title: string;
-    Date: string;
-    Time: string;
-    Location: string;
-    Organizer: string;
-};
+export class Event {
+    public event: boolean = false;
+    public title: string = "unknown";
+    public dateTime: Date = new Date();
+    public location: string = "unknown";
+    public organizer: string = "unknown";
+}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 assert(OPENAI_API_KEY !== undefined, "OPENAI_API_KEY environment variable must be set");
-const api = new ChatGPTAPI({
-    apiKey: OPENAI_API_KEY
-});
 
-const PROMPT_INTRO = `Identify the following items from the email below:
-- Whether the email is inviting you to an event (true or false boolean value)
-- The title of the event (up to five words)
-- The date of the event (in mm/dd/yyyy format, the date received might help with your inference when the exact date is absent)
-- The beginning time of the event (in hh:mm format, for example if the email mentions 9pm it should be 21:00)
-- The location of the event
-- The organization hosting the event
+const openai = new OpenAIApi(
+    new Configuration({
+        apiKey: OPENAI_API_KEY
+    })
+);
 
-The email is delimited with triple backticks.
-Format your response as a JSON object with the following keys:
-- "Event"
-- "Title"
-- "Date"
-- "Time"
-- "Location"
-- "Organizer"
+const PROMPT_INTRO = dedent`
+    Identify the following items from the email below:
+    - Whether the email is inviting you to an event (true or false boolean value)
+    - The title of the event (up to five words)
+    - The dateTime of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent)
+    - The location of the event
+    - The organization hosting the event
 
-If the information is not present in the email, leave the value as "unknown".
+    The email is delimited with triple backticks.
+    Format your response as a JSON object with the following keys:
+    - "event"
+    - "title"
+    - "dateTime"
+    - "location"
+    - "organizer"
 
-Email text:
+    If the information is not present in the email, leave the value as "unknown".
+
+    Email text:
 `;
 
 function assemblePrompt(subject: string, body: string, dateReceived: Date) {
@@ -65,28 +68,52 @@ export async function extractFromEmail(
     body: string,
     dateReceived: Date
 ): Promise<Event> {
-    const prompt = assemblePrompt(subject, body, dateReceived);
+    let response;
+    let backOff = 1000;
+    while (true) {
+        response = await openai.createChatCompletion(
+            {
+                model: "gpt-3.5-turbo",
+                messages: [
+                    { role: "system", content: PROMPT_INTRO },
+                    {
+                        role: "user",
+                        content: dedent`
+                            \`\`\`
+                            Subject: ${subject}
+                            Date Received: ${dateReceived}
+                            Body:
+                            ${body}
+                            \`\`\`                
+                        `
+                    }
+                ]
+            },
+            { validateStatus: () => true }
+        );
+        if (response.status === HttpStatusCode.OK) break;
+        if (response.status === HttpStatusCode.TOO_MANY_REQUESTS) {
+            await new Promise((resolve) => setTimeout(resolve, backOff));
+            backOff *= 1.5;
+        } else throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
+    }
+    const completion = response.data.choices[0];
+    assert(completion.finish_reason === "stop", "OpenAI API call failed");
+    const completionText = completion.message?.content;
+    assert(completionText !== undefined);
 
-    const res = await api.sendMessage(prompt);
     try {
-        const eventObj: Event = JSON.parse(res.text);
-        for (const properties of LIST_OF_PROPERTIES) {
-            assert(
-                properties in eventObj,
-                `The key ${properties} is not present in the LLM response`
-            );
+        const event: Event = JSON.parse(completionText);
+        for (const properties of Object.keys(new Event())) {
+            assert(properties in event, `The key ${properties} is not present in the LLM response`);
+            if (properties === "dateTime") {
+                event.dateTime = new Date(event.dateTime as unknown as string);
+            }
         }
-        return eventObj;
-    } catch (e) {
-        console.log("Cannot parse JSON:", res.text);
-        return {
-            Event: false,
-            Title: "unknown",
-            Date: "unknown",
-            Time: "unknown",
-            Location: "unknown",
-            Organizer: "unknown"
-        };
+        return event;
+    } catch {
+        console.log("Cannot parse JSON:", completionText);
+        return new Event();
     }
 }
 

@@ -10,21 +10,19 @@ import {
     PersistenceCachePlugin,
     PersistenceCreator
 } from "@azure/msal-node-extensions";
-import { PrismaClient } from "@prisma/client";
-import assert from "assert";
+import { DataSource, Prisma, PrismaClient } from "@prisma/client";
+import assert, { AssertionError } from "assert";
 import express from "express";
 import asyncHandler from "express-async-handler";
 import fs from "fs";
-import HttpStatus from "http-status-codes";
+import HttpStatus, { REQUEST_URI_TOO_LONG } from "http-status-codes";
 import https from "https";
 import { ImapFlow } from "imapflow";
 import { ParsedMail, simpleParser } from "mailparser";
 
-import { Event, extractFromEmail } from "./llm.js";
+import { CURRENT_MODEL_NAME, Event, extractFromEmail } from "./llm.js";
 
 type AuthResult = { user: string; accessToken: string; expiresOn: number };
-
-const NUM_OF_EMAILS_TO_FETCH = 20;
 
 async function authenticate(): Promise<AuthResult> {
     const cachePath = ".token.json";
@@ -129,6 +127,8 @@ async function authenticate(): Promise<AuthResult> {
     return promise;
 }
 
+const LOOKBACK_DAYS = 7;
+
 export default async function main() {
     const auth = await authenticate();
     const client = new ImapFlow({
@@ -140,7 +140,6 @@ export default async function main() {
     });
 
     const prisma = new PrismaClient();
-    const maxUid = (await prisma.email.aggregate({ _max: { uid: true } }))._max.uid ?? 0;
     await client.connect();
 
     let lock = await client.getMailboxLock("INBOX");
@@ -148,27 +147,27 @@ export default async function main() {
         assert(typeof client.mailbox !== "boolean");
         console.log(`Mailbox has ${client.mailbox.exists} messages`);
         const since = new Date();
-        since.setDate(new Date().getDate() - 30);
-        const uids = (await client.search({ sentSince: since }, { uid: true })).filter(
-            (uid) => uid > maxUid
-        );
-        console.log(`Received ${uids.length} mails in the past 30 days`);
-        // See https://how-to-dormspam.mit.edu/.
-        const dormspamKeywords = [
-            "bcc'd to all dorms",
-            "bcc's to all dorms",
-            "bcc'd to dorms",
-            "bcc'ed dorms",
-            "bcc'ed to dorms",
-            "bcc to dorms",
-            "bcc'd to everyone",
-            "bcc dormlists",
-            "bcc to dormlists",
-            "for bc-talk"
-        ];
-        let fetchLeft = NUM_OF_EMAILS_TO_FETCH;
-        const fetchPromises: Promise<void>[] = []; // for concurrency. LLM is slow.
-
+        since.setDate(new Date().getDate() - LOOKBACK_DAYS);
+        const allUids = await client.search({ since: since }, { uid: true });
+        const minUid = Math.min(...allUids);
+        const ignoredUids = await prisma.ignoredEmail.findMany({
+            select: { uid: true },
+            where: {
+                scrapedBy: auth.user,
+                uid: { gte: minUid }
+            }
+        });
+        const staleUids = await prisma.email.findMany({
+            select: { uid: true },
+            where: {
+                scrapedBy: auth.user,
+                uid: { gte: minUid },
+                modelName: { equals: CURRENT_MODEL_NAME }
+            }
+        });
+        const seenUids = ignoredUids.concat(staleUids).map((email) => email.uid);
+        const uids = allUids.filter((uid) => !seenUids.includes(uid));
+        console.log(`Received ${uids.length} mails in the past ${LOOKBACK_DAYS} days`);
         for await (let message of client.fetch(
             uids,
             {
@@ -179,108 +178,133 @@ export default async function main() {
             { uid: true, changedSince: 0n }
         )) {
             const parsed = await simpleParser(message.source, { skipImageLinks: true });
-            if (dormspamKeywords.some((keyword) => parsed.text?.includes(keyword))) {
-                await addMail(prisma, auth.user, message.uid, parsed);
-                /*
-                const sender = parsed.from?.value[0];
-                const { messageId, from } = parsed;
-                if (sender === undefined || sender.address === undefined) continue;
-                const senderModel = await prisma.emailSender.upsert({
-                    where: { email: sender.address },
-                    create: {
-                        email: sender.address,
-                        name: sender.name || sender.address
-                    },
-                    update: { name: sender.name || sender.address }
-                });
-                */
-                fetchPromises.push(writeItDown(message.uid, parsed));
-                if (--fetchLeft == 0) {
-                    await Promise.all(fetchPromises);
-                    break;
-                }
-            }
+            await processMail(prisma, auth.user, message.uid, parsed);
         }
     } finally {
         lock.release();
+        await prisma.$disconnect();
     }
     await client.logout();
 }
 
-async function addMail(
+function isDormspam(parsed: ParsedMail): boolean {
+    // See https://how-to-dormspam.mit.edu/.
+    const dormspamKeywords = [
+        "bcc'd to all dorms",
+        "bcc's to all dorms",
+        "bcc'd to dorms",
+        "bcc'ed dorms",
+        "bcc'ed to dorms",
+        "bcc to dorms",
+        "bcc'd to everyone",
+        "bcc dormlists",
+        "bcc to dormlists",
+        "for bc-talk"
+    ];
+    return dormspamKeywords.some((keyword) => parsed.text?.includes(keyword));
+}
+
+async function processMail(
     prisma: PrismaClient,
     scrapedBy: string,
     uid: number,
     parsed: ParsedMail
 ): Promise<void> {
-    const { messageId, from, html } = parsed;
-    if (messageId === undefined || from === undefined || html === undefined) return;
-    const sender = from.value[0];
-    if (sender.address === undefined) return;
-    const senderAddress = sender.address;
-    const senderName = sender.name ?? senderAddress;
+    const receivedAt = parsed.date ?? new Date();
+    try {
+        assert(isDormspam(parsed));
+        const { messageId, from, html, subject } = parsed;
+        assert(messageId !== undefined && from !== undefined && html && subject !== undefined);
+        const sender = from.value[0];
+        assert(sender.address !== undefined);
+        const senderAddress = sender.address;
+        const senderName = sender.name ?? senderAddress;
 
-    const email = await prisma.email.upsert({
-        where: { messageId },
-        create: {
-            messageId,
-            scrapedBy,
-            uid,
-            sender: {
-                connectOrCreate: {
-                    where: { email: senderAddress },
-                    create: {
-                        email: senderAddress,
-                        name: senderName
+        let inReplyTo = undefined;
+        if (parsed.inReplyTo !== undefined) {
+            const inReplyToEmail = await prisma.email.findUnique({
+                where: { messageId: parsed.inReplyTo }
+            });
+            assert(inReplyToEmail !== null);
+            inReplyTo = {
+                connect: { messageId: parsed.inReplyTo }
+            };
+        }
+        const email = await prisma.email.upsert({
+            where: { messageId },
+            create: {
+                messageId,
+                scrapedBy,
+                uid,
+                sender: {
+                    connectOrCreate: {
+                        where: { email: senderAddress },
+                        create: {
+                            email: senderAddress,
+                            name: senderName
+                        }
+                    }
+                },
+                subject,
+                body: html,
+                receivedAt,
+                modelName: CURRENT_MODEL_NAME,
+                inReplyTo
+            },
+            update: {}
+        });
+
+        const text = parsed.text ?? "No text";
+        const extractedEvent = await extractFromEmail(subject, text, receivedAt);
+        if (!extractedEvent.event) return;
+        // LLM may return malformed datetime.
+        void extractedEvent.dateTime.toISOString();
+
+        let root = email;
+        while (root.inReplyToId !== null) {
+            root =
+                (await prisma.email.findUnique({ where: { messageId: root.inReplyToId } })) ??
+                assert.fail("Thread root not in database");
+        }
+
+        await prisma.event.upsert({
+            where: { fromEmailId: root.messageId },
+            create: {
+                source: DataSource.DORMSPAM,
+                title: extractedEvent.title,
+                date: extractedEvent.dateTime,
+                location: extractedEvent.location,
+                organizer: extractedEvent.organizer,
+                fromEmail: {
+                    connect: {
+                        messageId: root.messageId
                     }
                 }
             },
-            body: !html ? "" : html,
-            receivedAt: parsed.date ?? new Date(),
-            inReplyTo: {
-                connect: {
-                    messageId: parsed.inReplyTo
-                }
+            update: {
+                title: extractedEvent.title,
+                date: extractedEvent.dateTime,
+                location: extractedEvent.location,
+                organizer: extractedEvent.organizer,
             }
-        },
-        update: {}
-    });
-}
-
-/**
- * Extracts the event from the parsed email
- *
- * @param parsed the parsed email
- * @returns an event object
- */
-async function processParsedEmail(parsed: ParsedMail) {
-    const subject = parsed.subject ?? "No subject";
-    const text = parsed.text ?? "No text";
-    const dateReceived = parsed.date ?? assert.fail("No date received");
-    const extractedEvent: Event = await extractFromEmail(subject, text, dateReceived);
-    return extractedEvent;
-}
-
-/**
- * Writes the email and the extracted event to a file
- *
- * @param messageID the message uid. Used as the filename
- * @param parsed the parsed email
- */
-async function writeItDown(messageID: number, parsed: ParsedMail) {
-    const extractedEvent = await processParsedEmail(parsed);
-    if (!fs.existsSync("testmails")) {
-        fs.mkdirSync("testmails");
+        });
+        console.log(`Registered email: ${parsed.subject}: `, extractedEvent);
+    } catch (error) {
+        if (error instanceof AssertionError || error instanceof RangeError) {
+            console.log(`Ignored email: ${parsed.subject} ${uid}`);
+            await prisma.ignoredEmail.upsert({
+                where: { scrapedBy_uid: { scrapedBy, uid } },
+                create: {
+                    scrapedBy,
+                    uid,
+                    receivedAt
+                },
+                update: {}
+            });
+        } else {
+            throw error;
+        }
     }
-    const emailPromise = fs.promises.writeFile(
-        `testmails/${messageID}.eml`,
-        `Subject: ${parsed.subject}\nBody:\n${parsed.text}`
-    );
-    const jsonPromise = fs.promises.writeFile(
-        `testmails/${messageID}.json`,
-        JSON.stringify(extractedEvent, null, 4)
-    );
-    await Promise.all([emailPromise, jsonPromise]);
 }
 
 await main();

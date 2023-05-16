@@ -25,11 +25,6 @@ model Event {
   organizer String
   date      DateTime
   location  String
-  summary   String
-
-  // The name of the model-prompt used to process this event. E.g. "GPT3.5-prompt-0514"
-  // In this way when we get better models we can reprocess the same events with the new model.
-  modelName String
 }
 
 model Email {
@@ -46,9 +41,24 @@ model Email {
   receivedAt  DateTime
   sender      EmailSender @relation(fields: [senderEmail], references: [email])
   senderEmail String
+  subject     String
   body        String
 
+  // The name of the model-prompt used to process this event. E.g. "GPT3.5-prompt-0514"
+  // In this way when we get better models we can reprocess the same events with the new model.
+  modelName String?
+
   event Event? // Andi: if we agree that emails can have multiple events, then this should be Event[], and this should have a relational constraint?
+}
+
+// Also record emails we looked at but ignored. This prevents us from looking at them again.
+// Stores less information for privacy reasons.
+model IgnoredEmail {
+  scrapedBy  String
+  uid        Int
+  receivedAt DateTime
+
+  @@unique([scrapedBy, uid])
 }
 
 model EmailSender {
