@@ -23,7 +23,7 @@ async function relay(): Promise<void> {
     app.get(
         "/",
         createProxyMiddleware({
-            target: `https://${IP}`,
+            target: `https://${IP}:4443`,
             changeOrigin: true,
             secure: false,
         })

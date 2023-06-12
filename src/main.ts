@@ -29,7 +29,7 @@ export default async function main() {
         const since = new Date();
         since.setDate(new Date().getDate() - LOOKBACK_DAYS);
         const allUids = await client.search({ since: since }, { uid: true });
-        // minUid: what is the earliest email received after `since`? 
+        // minUid: what is the earliest email received after `since`?
         const minUid = Math.min(...allUids);
         // ignoredUids: emails that cannot be dormspams because they don't contain the keywords.
         const ignoredUids = await prisma.ignoredEmail.findMany({
@@ -65,7 +65,7 @@ export default async function main() {
             },
             { uid: true, changedSince: 0n }
         )) {
-            const parsed = await simpleParser(message.source, { skipImageLinks: true });
+            const parsed = await simpleParser(message.source);
             await processMail(prisma, auth.user, message.uid, parsed);
         }
     } finally {
@@ -157,9 +157,10 @@ async function processMail(
                 assert.fail("Thread root not in database");
         }
 
-        await prisma.event.upsert({
-            where: { fromEmailId: root.messageId },
-            create: {
+        const existing = await prisma.event.findFirst({ where: { fromEmailId: root.messageId } });
+        if (existing !== undefined) return;
+        prisma.event.create({
+            data: {
                 source: DataSource.DORMSPAM,
                 title: extractedEvent.title,
                 date: extractedEvent.dateTime,
@@ -170,12 +171,6 @@ async function processMail(
                         messageId: root.messageId
                     }
                 }
-            },
-            update: {
-                title: extractedEvent.title,
-                date: extractedEvent.dateTime,
-                location: extractedEvent.location,
-                organizer: extractedEvent.organizer
             }
         });
         console.log(`Registered email: ${parsed.subject}: `, extractedEvent);
