@@ -26,7 +26,7 @@ const openai = new OpenAIApi(
 
 const PROMPT_INTRO = dedent`
     Identify the following items from the email below:
-    - Whether the email is inviting you to an event (true or false boolean value)
+    - Whether the email is inviting you to an event (true or false boolean value. For example, shows and talks are events, senior sales and club position applications are not events)
     - The title of the event (up to five words)
     - The dateTime of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent)
     - The location of the event
