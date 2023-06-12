@@ -33,7 +33,7 @@ const PROMPT_INTRO = dedent`
     - The organization hosting the event
 
     The email is delimited with triple backticks.
-    Format your response as a JSON object with the following keys:
+    Format your response as a JSON object with the following keys (just JSON, with no extra explanations):
     - "event"
     - "title"
     - "dateTime"
