@@ -2,8 +2,10 @@ import express from "express";
 import fs from "fs";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import https from "https";
+import dotenv from "dotenv";
 
-const IP = "18.214.179.129";
+dotenv.config();
+const IP = process.env.REMOTE_IP ?? "localhost";
 
 async function relay(): Promise<void> {
     const [privateKey, publicKey] = await Promise.all([
