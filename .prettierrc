@@ -2,7 +2,7 @@
   "semi": true,
   "trailingComma": "none",
   "singleQuote": false,
-  "tabWidth": 4,
+  "tabWidth": 2,
   "printWidth": 100,
   "importOrder": ["^[./]"],
   "importOrderSeparation": true,
