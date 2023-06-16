@@ -12,6 +12,7 @@ import { extractFromEmail } from "./llm.js";
 // Multiple events with different times & locations: Pride Month Events
 // Event with a speaker that might be mistaken as organizer: UN x MIT
 // Not event: Senior Sale
+// Long event: DormSoup Newsletter Test
 
 async function main(): Promise<void> {
     const auth = await authenticate();

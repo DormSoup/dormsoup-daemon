@@ -24,29 +24,6 @@ const openai = new OpenAIApi(
   })
 );
 
-const SHORT_PROMPT_INTRO = dedent`
-  Identify the following items from the email below. 
-  Output date time of an event in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor.
-
-  The email is delimited with triple backticks.
-  If any information is not present in the email, leave the value as "unknown".
-
-  The output should resemble the following:
-  \`\`\`
-  {
-    "events": [
-      {
-        "title": "[FREE FOOD] UN x MIT: Immersive storytelling and VR for Peace",
-        "date_time": "2023-04-03T18:00:00",
-        "location": "Room 3-333",
-        "organizer": "MIT UN"
-      }
-    ]
-  }
-  \`\`\`
-
-  Email text:
-`;
 
 const PROMPT_INTRO = dedent`
   Identify the following details of events from an email that will be given between triple backticks.
@@ -84,6 +61,10 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
+const SHORT_MODEL = "gpt-3.5-turbo-0613";
+const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
+
+const LONG_THRESHOLD = 12000; // 12k chars = 3k tokens
 
 /**
  * Extracts the event information from an email.
@@ -119,8 +100,7 @@ export async function extractFromEmail(
   while (true) {
     response = await openai.createChatCompletion(
       {
-        model: "gpt-3.5-turbo-0613",
-        // model: "gpt-3.5-turbo-16k-0613",
+        model: assembledPrompt.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL,
         messages: [
           { role: "system", content: PROMPT_INTRO },
           { role: "user", content: assembledPrompt }
@@ -176,14 +156,14 @@ export async function extractFromEmail(
       },
       { validateStatus: () => true }
     );
-    console.log("fuck", response); if (response.status === HttpStatus.OK) break;
+    console.log("fuck", response); 
+    if (response.status === HttpStatus.OK) break;
     if (response.status === HttpStatus.TOO_MANY_REQUESTS) {
       if (debugMode) console.warn(`Rate limited. Retrying in ${backOff} ms...`);
       await new Promise((resolve) => setTimeout(resolve, backOff));
       backOff *= 1.5;
     } else if (response.status === HttpStatus.BAD_REQUEST) {
-      if (debugMode) console.warn("Bad requests: ", response);
-      assembledPrompt = assembledPrompt.substring(0, assembledPrompt.length / 2) + "\`\`\`";
+      if (debugMode) console.warn("Bad request: ", response);
     } else {
       throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     }
