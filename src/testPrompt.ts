@@ -7,6 +7,12 @@ import readline from "readline/promises";
 import { authenticate } from "./auth.js";
 import { extractFromEmail } from "./llm.js";
 
+// Good test cases
+// Event with multiple times (same location): Ascension
+// Multiple events with different times & locations: Pride Month Events
+// Event with a speaker that might be mistaken as organizer: UN x MIT
+// Not event: Senior Sale
+
 async function main(): Promise<void> {
     const auth = await authenticate();
     const client = new ImapFlow({
