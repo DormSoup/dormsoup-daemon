@@ -137,6 +137,7 @@ async function processMail(
 ): Promise<void> {
   const receivedAt = parsed.date ?? new Date();
   let email: Email | undefined = undefined;
+  let prevModelName: string | undefined;
 
   try {
     assert(isDormspam(parsed));
@@ -157,6 +158,11 @@ async function processMail(
         connect: { messageId: parsed.inReplyTo }
       };
     }
+
+    prevModelName =
+      (await prisma.email.findFirst({ where: { messageId }, select: { modelName: true } }))
+        ?.modelName ?? undefined;
+
     email = await prisma.email.upsert({
       where: { messageId },
       create: {
@@ -179,8 +185,7 @@ async function processMail(
     });
 
     const text = parsed.text ?? convert(html);
-    const extractedEvent = await extractFromEmail(subject, text, receivedAt);
-    if (!extractedEvent.event) return;
+    const events = await extractFromEmail(subject, text, receivedAt);
 
     let root = email;
     while (root.inReplyToId !== null) {
@@ -190,30 +195,31 @@ async function processMail(
     }
 
     const existing = await prisma.event.findFirst({ where: { fromEmailId: root.messageId } });
-    if (existing !== null) return;
-
-    const dates =
-      extractedEvent.dateTime instanceof Date ? [extractedEvent.dateTime] : extractedEvent.dateTime;
+    if (prevModelName === CURRENT_MODEL_NAME && existing !== null) return;
 
     await Promise.all(
-      dates.map((date) =>
+      events.map((event) =>
         prisma.event.create({
           data: {
-            date,
+            date: event.dateTime,
             source: DataSource.DORMSPAM,
-            title: extractedEvent.title,
-            location: extractedEvent.location,
-            organizer: extractedEvent.organizer,
+            title: event.title,
+            location: event.location,
+            organizer: event.organizer,
             fromEmail: { connect: { messageId: root.messageId } }
           }
         })
       )
     );
-
-    console.log(`Registered email: ${parsed.subject}: `, extractedEvent);
+    for (const event of events) console.log(`Registered email: ${parsed.subject}: `, event);
   } catch (error) {
+    // The code above has been written such that assertion error only arises when the email is NOT
+    // a dormspam we care about at all. It needs not be reprocessed when we update our model&prompt
+    // so we may ignore it for good.
     if (error instanceof AssertionError || error instanceof RangeError) {
       console.log(`Ignored email: ${parsed.subject} ${uid}`);
+      if (isDormspam(parsed))
+        console.log("Ignored dormspam because: ", error);
       await prisma.ignoredEmail.upsert({
         where: { scrapedBy_uid: { scrapedBy, uid } },
         create: { scrapedBy, uid, receivedAt },
@@ -223,7 +229,8 @@ async function processMail(
       if (email !== undefined) {
         await prisma.email.update({
           where: { messageId: email.messageId },
-          data: { modelName: "" }
+          // set modelName to empty so when we update our model & prompt, this email will be revisited.
+          data: { modelName: prevModelName ?? "" }
         });
       }
       throw error;

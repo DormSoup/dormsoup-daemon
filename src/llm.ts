@@ -5,14 +5,13 @@ import HttpStatus from "http-status-codes";
 import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
-export const CURRENT_MODEL_NAME = "GPT-3.5-061223.12";
+export const CURRENT_MODEL_NAME = "GPT-3.5-0613.2";
 
-export class Event {
-  public event: boolean = false;
-  public title: string = "unknown";
-  public dateTime: Date | Date[] = new Date();
-  public location: string = "unknown";
-  public organizer: string = "unknown";
+export interface Event {
+  title: string;
+  dateTime: Date;
+  location: string;
+  organizer: string;
 }
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -23,7 +22,6 @@ const openai = new OpenAIApi(
     apiKey: OPENAI_API_KEY
   })
 );
-
 
 const PROMPT_INTRO = dedent`
   Identify the following details of events from an email that will be given between triple backticks.
@@ -63,7 +61,6 @@ const PROMPT_INTRO = dedent`
 
 const SHORT_MODEL = "gpt-3.5-turbo-0613";
 const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
-
 const LONG_THRESHOLD = 12000; // 12k chars = 3k tokens
 
 /**
@@ -79,9 +76,9 @@ export async function extractFromEmail(
   body: string,
   dateReceived: Date,
   debugMode: boolean = false
-): Promise<Event> {
+): Promise<Event[]> {
   let response;
-  let backOff = 1000;
+  let backOffTimeMs = 1000;
 
   // Get rid of shitty base64.
   body = body.replaceAll(/[A-Za-z0-9+\/=]{64,}/g, "");
@@ -125,8 +122,7 @@ export async function extractFromEmail(
                       },
                       time_in_the_day: {
                         type: "string",
-                        description:
-                          "The start time in the day of the event (in HH:mm format)"
+                        description: "The start time in the day of the event (in HH:mm format)"
                       },
                       date_time: {
                         type: "string",
@@ -156,29 +152,26 @@ export async function extractFromEmail(
       },
       { validateStatus: () => true }
     );
-    console.log("fuck", response); 
     if (response.status === HttpStatus.OK) break;
     if (response.status === HttpStatus.TOO_MANY_REQUESTS) {
-      if (debugMode) console.warn(`Rate limited. Retrying in ${backOff} ms...`);
-      await new Promise((resolve) => setTimeout(resolve, backOff));
-      backOff *= 1.5;
+      if (debugMode) console.warn(`Rate limited. Retrying in ${backOffTimeMs} ms...`);
+      await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
+      backOffTimeMs *= 1.5;
     } else if (response.status === HttpStatus.BAD_REQUEST) {
       if (debugMode) console.warn("Bad request: ", response);
     } else {
       throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     }
   }
+
   const completion = response.data.choices[0];
-  // console.log(completion);
   assert(
     completion.finish_reason === "stop" || completion.finish_reason === "function_call",
     "OpenAI API call failed"
   );
   let completionArguments = completion.message?.function_call?.arguments;
   assert(completionArguments !== undefined);
-  console.log(completionArguments);
-  throw new Error("fuck");
-  // return tryParseEventJSON(completionArguments);
+  return tryParseEventJSON(completionArguments);
 }
 
 /**
@@ -188,41 +181,30 @@ export async function extractFromEmail(
  * @param completionText The completion text from LLM.
  * @returns An event object.
  */
-function tryParseEventJSON(completionText: string): Event {
-  let isEvent = false;
+function tryParseEventJSON(completionText: string): Event[] {
   try {
-    // Removes surrounding ```s
-    if (completionText.startsWith("```") && completionText.endsWith("```"))
-      completionText = completionText.substring(3, completionText.length - 3);
-    // Removes trailing comma (hacky)
-    completionText = completionText.replaceAll(/,\s*\]/g, "]");
-
-    const event: Event = JSON.parse(completionText);
-    isEvent = event.event;
-    // While theoretically the completion text should follow the schema of the Event object,
-    // the object JSON.parse() isn't necessarily an actual Event object. We have to check here.
-    for (const properties of Object.keys(new Event())) {
-      assert(properties in event, `The key ${properties} is not present in the LLM response`);
-
-      if (properties === "dateTime") {
-        // Most notably for date time, since JSON does not have a date type, it always come in as
-        // string(s).
-        if (typeof event.dateTime === "string") {
-          event.dateTime = new Date(event.dateTime as unknown as string);
-          // Sanity check: try toISOString() to see if it's a valid date. Invalid dates will throw
-          // RangeError here.
-          void event.dateTime.toISOString();
-        } else {
-          event.dateTime = (event.dateTime as unknown as string[]).map((date) => new Date(date));
-          event.dateTime.forEach((dateTime) => dateTime.toISOString());
-        }
+    const events: { [key: string]: string }[] = JSON.parse(completionText);
+    if (events.length >= 1) console.log(events);
+    return events.flatMap((rawEvent) => {
+      try {
+        const err = () => {
+          throw new Error();
+        };
+        const dateTime = new Date(rawEvent["date_time"]);
+        void dateTime.toISOString();
+        return [
+          {
+            title: rawEvent["title"] ?? err(),
+            dateTime,
+            location: rawEvent["location"] ?? err(),
+            organizer: rawEvent["organizer"] ?? err()
+          } as Event
+        ];
+      } catch {
+        return [];
       }
-    }
-    return event;
+    });
   } catch (error) {
-    // We only care about the error if the LLM thinks it's an event.
-    // Non-events aren't added to the database for now anyways.
-    if (isEvent) console.log("Cannot parse JSON:", completionText, error);
-    return new Event();
+    return [];
   }
 }
