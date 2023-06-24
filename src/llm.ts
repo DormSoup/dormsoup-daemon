@@ -6,7 +6,7 @@ import HttpStatus from "http-status-codes";
 import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
-export const CURRENT_MODEL_NAME = "GPT-3.5-0622";
+export const CURRENT_MODEL_NAME = "GPT-3.5-0624";
 
 export interface Event {
   title: string;
@@ -25,19 +25,22 @@ const openai = new OpenAIApi(
 );
 
 const PROMPT_INTRO = dedent`
-  Identify the following details of events from an email that will be given between triple backticks.
-  - The title of the event (up to five words)
+  Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
+  That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
+
+  If the purpose of the email is to advertise for events, identify the following details of events:
+  - The title of the event (up to five words. Use Title Case.)
   - The start time of the event (in HH:mm format)
   - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
-  - The location of the event
-  - The organization hosting the event
+  - The location of the event (MIT campus often use building numbers and room numbers to refer to locations. Be specific.)
+  - The organization hosting the event (usually a club, however it is possible for individuals to organize events)
 
   The output should resemble the following:
   ---------------- Sample Response (for formatting reference) --------------
   {
     "events": [
       {
-        "title": "[FREE FOOD] UN x MIT: Immersive storytelling and VR for Peace",
+        "title": "UN x MIT: Immersive Storytelling",
         "time_in_the_day": 18:00,
         "date_time": "2023-04-03T18:00:00",
         "location": "Room 3-333",
@@ -47,16 +50,16 @@ const PROMPT_INTRO = dedent`
   }
   ---------------- End Sample Response (for formatting reference) --------------
 
-  Note that in the above example, the date_time is given in the yyyy-MM-ddTHH:mm:ss format.
-  The location is a specific location at or around MIT (MIT campus often use building numbers and room numbers to refer to locations), since this is an email sent by an MIT student, so generic location like Cambridge, MA is meaningless.
-  The organizer is usually a club, however it is possible for individuals to organize events.
-  What counts as events: shows (with specific time) and talks are usually events. 
-  Senior sales, club position / job applications / volunteering oppurtunities are not events.
+  Common events include:
+  - Talks
+  - Shows
 
-  If there is no specific time of the day in the email (there are only dates), it usually is not an event.
-  If there is no events in the email (for example senior sale), leave the value of events as an empty array.
-  If there is no time of the day in the email, usually it is not an event.
-  If an event is mentioned in the email but is not the main thing the email is advertising (e.g. selling tickets, hiring staff), leave the value of events as an empty array.
+  However, if the purpose of the email is not to advertise for or inform about events, leave the value of events as an empty array.
+  Cases where the email is not advertising for an event include:
+  - Senior sales
+  - Some individuals trying to resell tickets
+  - Hiring staff (actors, volunteers) for upcoming events
+  - Job applications
   
   If the information is not present in the email, leave the value as "unknown".
 
@@ -64,6 +67,10 @@ const PROMPT_INTRO = dedent`
 
   Email text:
 `;
+
+/*
+
+ */
 
 //  An event is something that any MIT student could attend at a specific time and location, so if the email is about an audition, job opportunity, or seeking staff for a production, it is not an event.
 
@@ -119,6 +126,11 @@ export async function extractFromEmail(
             parameters: {
               type: "object",
               properties: {
+                rejectedReason: {
+                  type: "string",
+                  description:
+                    "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
+                },
                 events: {
                   type: "array",
                   description:
@@ -150,9 +162,9 @@ export async function extractFromEmail(
                     },
                     required: ["title", "date", "location", "organizer"]
                   }
-                }
+                },
               },
-              required: ["events"]
+              required: ["events", "rejectedReason"]
             }
           }
         ],
@@ -181,12 +193,19 @@ export async function extractFromEmail(
   }
 
   const completion = response.data.choices[0];
+  console.log("Completion:", completion);
+
   assert(
     completion.finish_reason === "stop" || completion.finish_reason === "function_call",
     "OpenAI API call failed"
   );
   let completionArguments = completion.message?.function_call?.arguments;
   assert(completionArguments !== undefined);
+  if (debugMode) {
+    const rejectedReason = JSON.parse(completionArguments).rejectedReason;
+    if (rejectedReason !== undefined)
+      console.log("Rejected Reason: ", rejectedReason);
+  }
   return tryParseEventJSON(completionArguments);
 }
 
