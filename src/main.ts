@@ -195,6 +195,13 @@ async function processMail(
     }
 
     const existing = await prisma.event.findFirst({ where: { fromEmailId: root.messageId } });
+    if (existing !== null) {
+      // The existing email has already been processed with the current model, do nothing.
+      if (prevModelName === CURRENT_MODEL_NAME) return;
+      // The existing email has been processed by an older model / prompt. Delete all associated
+      // events.
+      await prisma.event.deleteMany({ where: { fromEmailId: root.messageId } });
+    }
     if (prevModelName === CURRENT_MODEL_NAME && existing !== null) return;
 
     await Promise.all(
@@ -218,8 +225,7 @@ async function processMail(
     // so we may ignore it for good.
     if (error instanceof AssertionError || error instanceof RangeError) {
       console.log(`Ignored email: ${parsed.subject} ${uid}`);
-      if (isDormspam(parsed))
-        console.log("Ignored dormspam because: ", error);
+      if (isDormspam(parsed)) console.log("Ignored dormspam because: ", error);
       await prisma.ignoredEmail.upsert({
         where: { scrapedBy_uid: { scrapedBy, uid } },
         create: { scrapedBy, uid, receivedAt },

@@ -5,3 +5,5 @@ testmails
 .env
 .token.json
 .vscode
+
+sync.sh

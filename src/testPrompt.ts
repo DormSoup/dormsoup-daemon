@@ -13,6 +13,9 @@ import { extractFromEmail } from "./llm.js";
 // Event with a speaker that might be mistaken as organizer: UN x MIT
 // Not event: Senior Sale
 // Long event: DormSoup Newsletter Test
+// Hiring actors for future event: Seeking Directorial and Production Staff for THE FANTASTICKS
+// Volunteering Oppurtunity: Teach CS to Under-resourced High Schoolers
+// Selling tickets: 100 gecs
 
 async function main(): Promise<void> {
     const auth = await authenticate();

@@ -2,10 +2,11 @@ import assert from "assert";
 import dedent from "dedent";
 import dotenv from "dotenv";
 import HttpStatus from "http-status-codes";
+// import { RateLimiter } from "limiter-es6-compat";
 import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
-export const CURRENT_MODEL_NAME = "GPT-3.5-0613.2";
+export const CURRENT_MODEL_NAME = "GPT-3.5-0622";
 
 export interface Event {
   title: string;
@@ -49,8 +50,13 @@ const PROMPT_INTRO = dedent`
   Note that in the above example, the date_time is given in the yyyy-MM-ddTHH:mm:ss format.
   The location is a specific location at or around MIT (MIT campus often use building numbers and room numbers to refer to locations), since this is an email sent by an MIT student, so generic location like Cambridge, MA is meaningless.
   The organizer is usually a club, however it is possible for individuals to organize events.
-  What counts as events: shows and talks are events, senior sales and club position applications are not events)
+  What counts as events: shows (with specific time) and talks are usually events. 
+  Senior sales, club position / job applications / volunteering oppurtunities are not events.
 
+  If there is no specific time of the day in the email (there are only dates), it usually is not an event.
+  If there is no events in the email (for example senior sale), leave the value of events as an empty array.
+  If there is no time of the day in the email, usually it is not an event.
+  If an event is mentioned in the email but is not the main thing the email is advertising (e.g. selling tickets, hiring staff), leave the value of events as an empty array.
   
   If the information is not present in the email, leave the value as "unknown".
 
@@ -59,9 +65,12 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
+//  An event is something that any MIT student could attend at a specific time and location, so if the email is about an audition, job opportunity, or seeking staff for a production, it is not an event.
+
 const SHORT_MODEL = "gpt-3.5-turbo-0613";
 const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
 const LONG_THRESHOLD = 12000; // 12k chars = 3k tokens
+// const LIMITER = new RateLimiter({ tokensPerInterval: 10, interval: "second" });
 
 /**
  * Extracts the event information from an email.
@@ -81,7 +90,7 @@ export async function extractFromEmail(
   let backOffTimeMs = 1000;
 
   // Get rid of shitty base64.
-  body = body.replaceAll(/[A-Za-z0-9+\/=]{64,}/g, "");
+  body = removeBase64(body);
 
   let assembledPrompt = dedent`
     \`\`\`
@@ -95,6 +104,7 @@ export async function extractFromEmail(
   if (debugMode) console.log("Assembled prompt:", assembledPrompt);
 
   while (true) {
+    // const _ = await LIMITER.removeTokens(1);
     response = await openai.createChatCompletion(
       {
         model: assembledPrompt.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL,
@@ -153,10 +163,16 @@ export async function extractFromEmail(
       { validateStatus: () => true }
     );
     if (response.status === HttpStatus.OK) break;
-    if (response.status === HttpStatus.TOO_MANY_REQUESTS) {
+    if (
+      response.status === HttpStatus.TOO_MANY_REQUESTS ||
+      response.status === HttpStatus.SERVICE_UNAVAILABLE ||
+      response.status === HttpStatus.BAD_GATEWAY
+    ) {
       if (debugMode) console.warn(`Rate limited. Retrying in ${backOffTimeMs} ms...`);
       await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
       backOffTimeMs *= 1.5;
+      if (backOffTimeMs > 20000)
+        throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     } else if (response.status === HttpStatus.BAD_REQUEST) {
       if (debugMode) console.warn("Bad request: ", response);
     } else {
@@ -183,8 +199,7 @@ export async function extractFromEmail(
  */
 function tryParseEventJSON(completionText: string): Event[] {
   try {
-    const events: { [key: string]: string }[] = JSON.parse(completionText);
-    if (events.length >= 1) console.log(events);
+    const events: { [key: string]: string }[] = JSON.parse(completionText).events;
     return events.flatMap((rawEvent) => {
       try {
         const err = () => {
@@ -205,6 +220,23 @@ function tryParseEventJSON(completionText: string): Event[] {
       }
     });
   } catch (error) {
+    console.log("Error: ", error);
     return [];
   }
+}
+
+function removeBase64(input: string) {
+  const startKeyword = ";base64,";
+  const start = input.indexOf(";base64,");
+  if (start === -1) return input;
+  let end = start + startKeyword.length;
+  while (end < input.length) {
+    const charCode = input.charCodeAt(end);
+    if (65 <= charCode && charCode <= 90) end++;
+    else if (97 <= charCode && charCode <= 122) end++;
+    else if (48 <= charCode && charCode <= 57) end++;
+    else if (charCode === 43 || charCode === 47 || charCode === 61) end++;
+    else break;
+  }
+  return removeBase64(input.slice(0, start) + input.slice(end));
 }
