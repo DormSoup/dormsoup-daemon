@@ -8,6 +8,7 @@
     "relay": "ts-node src/localRelay.ts",
     "llm": "ts-node src/llm.ts",
     "testPrompt": "ts-node src/testPrompt.ts",
+    "deleteAllEvents": "ts-node src/deleteAllEvents.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",
@@ -55,6 +56,7 @@
     "http-proxy-middleware": "^2.0.6",
     "http-status-codes": "^2.2.0",
     "imapflow": "^1.0.128",
+    "limiter-es6-compat": "^2.1.2",
     "mailparser": "^3.6.4",
     "open": "^9.1.0",
     "openai": "^3.2.1"

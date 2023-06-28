@@ -7,7 +7,18 @@ import readline from "readline/promises";
 import { authenticate } from "./auth.js";
 import { extractFromEmail } from "./llm.js";
 
+// Good test cases
+// Event with multiple times (same location): Ascension
+// Multiple events with different times & locations: Pride Month Events
+// Event with a speaker that might be mistaken as organizer: UN x MIT
+// Not event: Senior Sale
+// Long event: DormSoup Newsletter Test
+// Hiring actors for future event: Seeking Directorial and Production Staff for THE FANTASTICKS
+// Volunteering Oppurtunity: Teach CS to Under-resourced High Schoolers
+// Selling tickets: 100 gecs
+
 async function main(): Promise<void> {
+    process.env.DEBUG_MODE = "true";
     const auth = await authenticate();
     const client = new ImapFlow({
         host: "outlook.office365.com",
@@ -51,7 +62,6 @@ async function main(): Promise<void> {
             parsed.subject ?? "No subject",
             text,
             parsed.date ?? new Date(),
-            true
         );
         console.log("Extracted event:", event);
     } finally {
