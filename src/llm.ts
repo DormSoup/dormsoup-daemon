@@ -2,7 +2,7 @@ import assert from "assert";
 import dedent from "dedent";
 import dotenv from "dotenv";
 import HttpStatus from "http-status-codes";
-// import { RateLimiter } from "limiter-es6-compat";
+import { RateLimiter } from "limiter-es6-compat";
 import {
   ChatCompletionFunctions,
   Configuration,
@@ -11,7 +11,7 @@ import {
 } from "openai";
 
 dotenv.config();
-export const CURRENT_MODEL_NAME = "GPT-3.5-0624";
+export const CURRENT_MODEL_NAME = "GPT-3.75-0627-2";
 
 export interface Event {
   title: string;
@@ -29,6 +29,28 @@ const openai = new OpenAIApi(
   })
 );
 
+const PROMPT_INTRO_HAS_EVENT = dedent`
+  Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
+  That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
+
+  If the purpose of the email is to advertise for events, respond True.
+
+  Common events include:
+  - Talks
+  - Shows
+  
+  If the purpose of the email is not to advertise for or inform about events, respond False and give reasons why (what about the email made you respond false).
+  Cases where the email is not advertising for an event include:
+  - Senior sales
+  - Some individuals trying to resell tickets
+  - Hiring staff (actors, volunteers) for upcoming events
+  - Job applications
+  
+  The email you need to analyze is given below is delimited with triple backticks.
+
+  Email text:
+`;
+
 const PROMPT_INTRO = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
@@ -37,7 +59,7 @@ const PROMPT_INTRO = dedent`
   - The title of the event (up to five words. Use Title Case.)
   - The start time of the event (in HH:mm format)
   - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
-  - The location of the event (MIT campus often use building numbers and room numbers to refer to locations. Be specific.)
+  - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
   - The organization hosting the event (usually a club, however it is possible for individuals to organize events)
 
   The output should resemble the following:
@@ -59,7 +81,7 @@ const PROMPT_INTRO = dedent`
   - Talks
   - Shows
 
-  However, if the purpose of the email is not to advertise for or inform about events, leave the value of events as an empty array.
+  However, if the purpose of the email is not to advertise for or inform about events, leave the value of events as an empty array, and give reasons why (what about the email made you respond with empty array),
   Cases where the email is not advertising for an event include:
   - Senior sales
   - Some individuals trying to resell tickets
@@ -81,8 +103,30 @@ const PROMPT_INTRO = dedent`
 
 const SHORT_MODEL = "gpt-3.5-turbo-0613";
 const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
-const LONG_THRESHOLD = 12000; // 12k chars = 3k tokens
-// const LIMITER = new RateLimiter({ tokensPerInterval: 10, interval: "second" });
+const LONG_THRESHOLD = 10000; // 12k chars = 3k tokens
+
+const GPT_3_LIMITER = new RateLimiter({ tokensPerInterval: 3500, interval: "minute" });
+const GPT_4_LIMITER = new RateLimiter({ tokensPerInterval: 200, interval: "minute" });
+
+const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
+  name: "set_email_has_event",
+  description: "Decide if the email has events",
+  parameters: {
+    type: "object",
+    properties: {
+      has_event: {
+        type: "boolean",
+        description: "Whether the email contains any event."
+      },
+      rejected_reason: {
+        type: "string",
+        description:
+          "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
+      }
+    },
+    require: ["has_event", "rejected_reason"]
+  }
+};
 
 const EXTRACT_FUNCTION: ChatCompletionFunctions = {
   name: "insert_extracted_properties_from_email",
@@ -90,7 +134,7 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
   parameters: {
     type: "object",
     properties: {
-      rejectedReason: {
+      rejected_reason: {
         type: "string",
         description:
           "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
@@ -128,7 +172,7 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
         }
       }
     },
-    required: ["events", "rejectedReason"]
+    required: ["events", "rejected_reason"]
   }
 };
 
@@ -143,12 +187,12 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
 export async function extractFromEmail(
   subject: string,
   body: string,
-  dateReceived: Date,
+  dateReceived: Date
 ): Promise<Event[]> {
   // Get rid of shitty base64.
   body = removeBase64(body);
 
-  let assembledPrompt = dedent`
+  let emailWithMetadata = dedent`
     \`\`\`
     Subject: ${subject}
     Date Received: ${dateReceived}
@@ -157,32 +201,36 @@ export async function extractFromEmail(
     \`\`\`                
   `;
 
-  if (process.env.DEBUG_MODE) console.log("Assembled prompt:", assembledPrompt);
+  if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
 
+  const model = emailWithMetadata.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL;
+
+  await GPT_3_LIMITER.removeTokens(1);
+  const responseIsEvent = await createChatCompletionWithRetry({
+    model,
+    messages: [
+      { role: "system", content: PROMPT_INTRO_HAS_EVENT },
+      { role: "user", content: emailWithMetadata }
+    ],
+    functions: [HAS_EVENT_PREDICATE_FUNCTION],
+    function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
+  });
+
+  // console.log(responseIsEvent);
+  if (!responseIsEvent["has_event"]) return [];
+
+  await GPT_4_LIMITER.removeTokens(1);
   const response = await createChatCompletionWithRetry({
-    model: assembledPrompt.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL,
+    model: "gpt-4-0613",
     messages: [
       { role: "system", content: PROMPT_INTRO },
-      { role: "user", content: assembledPrompt }
+      { role: "user", content: emailWithMetadata }
     ],
     functions: [EXTRACT_FUNCTION],
     function_call: { name: EXTRACT_FUNCTION.name }
   });
 
-  const completion = response.data.choices[0];
-  console.log("Completion:", completion);
-
-  assert(
-    completion.finish_reason === "stop" || completion.finish_reason === "function_call",
-    "OpenAI API call failed"
-  );
-  let completionArguments = completion.message?.function_call?.arguments;
-  assert(completionArguments !== undefined);
-  if (process.env.DEBUG_MODE) {
-    const rejectedReason = JSON.parse(completionArguments).rejectedReason;
-    if (rejectedReason !== undefined) console.log("Rejected Reason: ", rejectedReason);
-  }
-  return tryParseEventJSON(completionArguments);
+  return tryParseEventJSON(response);
 }
 
 /**
@@ -192,9 +240,9 @@ export async function extractFromEmail(
  * @param completionText The completion text from LLM.
  * @returns An event object.
  */
-function tryParseEventJSON(completionText: string): Event[] {
+function tryParseEventJSON(response: any): Event[] {
   try {
-    const events: { [key: string]: string }[] = JSON.parse(completionText).events;
+    const events: { [key: string]: string }[] = response.events;
     return events.flatMap((rawEvent) => {
       try {
         const err = () => {
@@ -223,10 +271,9 @@ function tryParseEventJSON(completionText: string): Event[] {
 async function createChatCompletionWithRetry(
   request: CreateChatCompletionRequest,
   backOffTimeMs: number = 1000
-): ReturnType<typeof openai.createChatCompletion> {
+): Promise<any> {
   let response;
   while (true) {
-    // const _ = await LIMITER.removeTokens(1);
     response = await openai.createChatCompletion(request, {
       validateStatus(status) {
         return true;
@@ -241,7 +288,7 @@ async function createChatCompletionWithRetry(
       if (process.env.DEBUG_MODE) console.warn(`Rate limited. Retrying in ${backOffTimeMs} ms...`);
       await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
       backOffTimeMs *= 1.5;
-      if (backOffTimeMs > 20000)
+      if (backOffTimeMs > 20000 && false)
         throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     } else if (response.status === HttpStatus.BAD_REQUEST) {
       if (process.env.DEBUG_MODE) console.warn("Bad request: ", response);
@@ -249,7 +296,19 @@ async function createChatCompletionWithRetry(
       throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     }
   }
-  return response;
+  const completion = response.data.choices[0];
+  assert(
+    completion.finish_reason === "stop" || completion.finish_reason === "function_call",
+    "OpenAI API call failed"
+  );
+  let completionArguments = completion.message?.function_call?.arguments;
+  assert(completionArguments !== undefined);
+  try {
+    return JSON.parse(completionArguments);
+  } catch (error) {
+    console.log("JSON parse error from parsing ", completionArguments);
+    throw error;
+  }
 }
 
 function removeBase64(input: string) {

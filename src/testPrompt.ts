@@ -16,6 +16,7 @@ import { extractFromEmail } from "./llm.js";
 // Hiring actors for future event: Seeking Directorial and Production Staff for THE FANTASTICKS
 // Volunteering Oppurtunity: Teach CS to Under-resourced High Schoolers
 // Selling tickets: 100 gecs
+// Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
 async function main(): Promise<void> {
     process.env.DEBUG_MODE = "true";
