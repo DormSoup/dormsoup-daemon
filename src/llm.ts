@@ -105,8 +105,26 @@ const SHORT_MODEL = "gpt-3.5-turbo-0613";
 const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
 const LONG_THRESHOLD = 10000; // 12k chars = 3k tokens
 
-const GPT_3_LIMITER = new RateLimiter({ tokensPerInterval: 3500, interval: "minute" });
-const GPT_4_LIMITER = new RateLimiter({ tokensPerInterval: 200, interval: "minute" });
+type LLMRateLimiter = {
+  rpmLimiter: RateLimiter;
+  tpmLimiter: RateLimiter;
+};
+
+const GPT_3_LIMITER: LLMRateLimiter = {
+  rpmLimiter: new RateLimiter({ tokensPerInterval: 3500, interval: "minute" }),
+  tpmLimiter: new RateLimiter({ tokensPerInterval: 90000, interval: "minute" })
+};
+
+const GPT_4_LIMITER: LLMRateLimiter = {
+  rpmLimiter: new RateLimiter({ tokensPerInterval: 200, interval: "minute" }),
+  tpmLimiter: new RateLimiter({ tokensPerInterval: 40000, interval: "minute" })
+};
+
+const MODEL_LIMITERS: { [modelName: string]: LLMRateLimiter } = {
+  "gpt-3.5-turbo-0613": GPT_3_LIMITER,
+  "gpt-3.5-turbo-16k-0613": GPT_3_LIMITER,
+  "gpt-4-0613": GPT_4_LIMITER
+};
 
 const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
   name: "set_email_has_event",
@@ -192,10 +210,21 @@ export async function extractFromEmail(
   // Get rid of shitty base64.
   body = removeBase64(body);
 
+  const formattedDateReceived = dateReceived.toLocaleString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/New_York",
+    hour12: false
+  });
+
   let emailWithMetadata = dedent`
     \`\`\`
     Subject: ${subject}
-    Date Received: ${dateReceived}
+    Date Received: ${formattedDateReceived}
     Body:
     ${body}
     \`\`\`                
@@ -205,7 +234,6 @@ export async function extractFromEmail(
 
   const model = emailWithMetadata.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL;
 
-  await GPT_3_LIMITER.removeTokens(1);
   const responseIsEvent = await createChatCompletionWithRetry({
     model,
     messages: [
@@ -219,7 +247,6 @@ export async function extractFromEmail(
   // console.log(responseIsEvent);
   if (!responseIsEvent["has_event"]) return [];
 
-  await GPT_4_LIMITER.removeTokens(1);
   const response = await createChatCompletionWithRetry({
     model: "gpt-4-0613",
     messages: [
@@ -232,6 +259,8 @@ export async function extractFromEmail(
 
   return tryParseEventJSON(response);
 }
+
+export async function tagEvent() {}
 
 /**
  * Tries to parse the JSON response from the LLM.
@@ -268,16 +297,31 @@ function tryParseEventJSON(response: any): Event[] {
   }
 }
 
+function estimateTokens(text: string): number {
+  const crudeEstimate = text.length / 4;
+  const educatedEstimate = text.split(/\b/g).filter((word) => word.trim().length > 0).length / 0.75;
+  console.log(
+    `Estimated ${crudeEstimate} / ${educatedEstimate} tokens from a text that's ${text.length} long.`
+  );
+  return Math.ceil(Math.max(crudeEstimate, educatedEstimate));
+}
+
 async function createChatCompletionWithRetry(
   request: CreateChatCompletionRequest,
   backOffTimeMs: number = 1000
 ): Promise<any> {
   let response;
+  const limiter = MODEL_LIMITERS[request.model];
+  if (limiter !== undefined) {
+    const text = request.messages.map((msg) => msg.content).join("\n");
+    const tokens = estimateTokens(text);
+    await limiter.rpmLimiter.removeTokens(1);
+    await limiter.tpmLimiter.removeTokens(tokens);
+  }
+
   while (true) {
     response = await openai.createChatCompletion(request, {
-      validateStatus(status) {
-        return true;
-      }
+      validateStatus: (status) => true
     });
     if (response.status === HttpStatus.OK) break;
     if (

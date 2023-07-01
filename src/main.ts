@@ -7,7 +7,7 @@ import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 import { authenticate } from "./auth.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm.js";
 
-const LOOKBACK_DAYS = 100;
+const LOOKBACK_DAYS = 60;
 
 export default async function main() {
   const auth = await authenticate();
@@ -221,7 +221,8 @@ async function processMail(
             title: event.title,
             location: event.location,
             organizer: event.organizer,
-            fromEmail: { connect: { messageId: root.messageId } }
+            fromEmail: { connect: { messageId: root.messageId } },
+            text
           }
         })
       )
@@ -235,7 +236,6 @@ async function processMail(
     // so we may ignore it for good.
     if (error instanceof AssertionError || error instanceof RangeError) {
       console.log(`Ignored email: ${parsed.subject} ${uid}`);
-      console.log(error);
       if (isDormspam(parsed)) console.log("Ignored dormspam because: ", error);
       await prisma.ignoredEmail.upsert({
         where: { scrapedBy_uid: { scrapedBy, uid } },

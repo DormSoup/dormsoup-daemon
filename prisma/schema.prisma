@@ -20,11 +20,25 @@ model Event {
   // For dormspam, this is the email that the event was scraped from.
   fromEmail   Email?     @relation(fields: [fromEmailId], references: [messageId])
   fromEmailId String
+  text        String
 
   title     String
   organizer String
   date      DateTime
   location  String
+
+  tags            Tag[]
+  tagsProcessedBy String?
+}
+
+model Tag {
+  id       Int    @id @default(autoincrement())
+  name     String
+  category String
+  icon     String
+  color    String
+
+  events Event[]
 }
 
 model Email {

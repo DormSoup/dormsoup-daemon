@@ -1,28 +1,28 @@
 {
-  "name": "hakken-daemon",
+  "name": "dormsoup-daemon",
   "version": "1.0.0",
   "description": "",
   "main": "main.ts",
   "scripts": {
     "start": "ts-node src/main.ts",
-    "relay": "ts-node src/localRelay.ts",
+    "relay": "ts-node src/scripts/localRelay.ts",
     "llm": "ts-node src/llm.ts",
-    "testPrompt": "ts-node src/testPrompt.ts",
-    "deleteAllEvents": "ts-node src/deleteAllEvents.ts",
+    "testPrompt": "ts-node src/scripts/testPrompt.ts",
+    "deleteAllEvents": "ts-node src/scripts/deleteAllEvents.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mit-hakken/hakken-daemon.git"
+    "url": "git+https://github.com/Dormsoup/dormsoup-daemon.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/mit-hakken/hakken-daemon/issues"
+    "url": "https://github.com/Dormsoup/dormsoup-daemon/issues"
   },
-  "homepage": "https://github.com/mit-hakken/hakken-daemon#readme",
+  "homepage": "https://github.com/Dormsoup/dormsoup-daemon#readme",
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^4.1.1",
     "@tsconfig/node18": "^2.0.1",
