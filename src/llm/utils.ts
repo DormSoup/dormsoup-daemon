@@ -49,14 +49,18 @@ export function estimateTokens(text: string): number {
   return Math.ceil(Math.max(crudeEstimate, educatedEstimate));
 }
 
+function truncate(text: string, threshold: number = 100): string {
+  return text.length < threshold ? text : text.substring(0, Math.max(0, threshold - 4)) + " ...";
+}
+
 export async function createChatCompletionWithRetry(
   request: CreateChatCompletionRequest,
   backOffTimeMs: number = 1000
 ): Promise<any> {
   let response;
   const limiter = MODEL_LIMITERS[request.model];
+  const text = request.messages.map((msg) => msg.content).join("\n");
   if (limiter !== undefined) {
-    const text = request.messages.map((msg) => msg.content).join("\n");
     const tokens = estimateTokens(text);
     await limiter.rpmLimiter.removeTokens(1);
     await limiter.tpmLimiter.removeTokens(tokens);
@@ -72,11 +76,12 @@ export async function createChatCompletionWithRetry(
       response.status === HttpStatus.SERVICE_UNAVAILABLE ||
       response.status === HttpStatus.BAD_GATEWAY
     ) {
-      if (process.env.DEBUG_MODE) console.warn(`Rate limited. Retrying in ${backOffTimeMs} ms...`);
       await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
       backOffTimeMs = Math.min(20000, backOffTimeMs * 1.5);
-      if (backOffTimeMs > 20000 && false)
-        throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
+      console.warn(
+        `Request error, backing off in ${backOffTimeMs} ms. Request test ${truncate(text)}`,
+        response
+      );
     } else if (response.status === HttpStatus.BAD_REQUEST) {
       if (process.env.DEBUG_MODE) console.warn("Bad request: ", response);
     } else {
@@ -112,4 +117,25 @@ export function removeBase64(input: string) {
     else break;
   }
   return removeBase64(input.slice(0, start) + input.slice(end));
+}
+
+export function removeURL(input: string) {
+  return input.replace(/(https?:\/\/[^\s]+)|(\[https?:\/\/[^\s]+\])/g, "");
+}
+
+export function removeArtifacts(input: string) {
+  return removeURL(removeBase64(input));
+}
+
+export function formatDateInET(date: Date) {
+  return date.toLocaleString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/New_York",
+    hour12: false
+  });
 }

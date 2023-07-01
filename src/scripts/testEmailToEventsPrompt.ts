@@ -5,7 +5,7 @@ import { simpleParser } from "mailparser";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { extractFromEmail } from "../llm.js";
+import { extractFromEmail } from "../llm/emailToEvents.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension

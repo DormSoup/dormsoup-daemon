@@ -5,7 +5,7 @@ import { ImapFlow } from "imapflow";
 import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 
 import { authenticate } from "./auth.js";
-import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvent.js";
+import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
 
 const LOOKBACK_DAYS = 70;
 

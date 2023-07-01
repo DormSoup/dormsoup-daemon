@@ -7,8 +7,11 @@
     "start": "ts-node src/main.ts",
     "relay": "ts-node src/scripts/localRelay.ts",
     "llm": "ts-node src/llm.ts",
-    "testPrompt": "ts-node src/scripts/testPrompt.ts",
+
+    "testEmailToEventsPrompt": "ts-node src/scripts/testEmailToEventsPrompt.ts",
+    "testEventToTagsPrompt": "ts-node src/scripts/testEventToTagsPrompt.ts",
     "deleteAllEvents": "ts-node src/scripts/deleteAllEvents.ts",
+
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",

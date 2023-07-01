@@ -1,10 +1,8 @@
 import dedent from "dedent";
-import dotenv from "dotenv";
 import { ChatCompletionFunctions } from "openai";
 
-import { createChatCompletionWithRetry, removeBase64 } from "./utils.js";
+import { createChatCompletionWithRetry, formatDateInET, removeArtifacts } from "./utils.js";
 
-dotenv.config();
 export const CURRENT_MODEL_NAME = "GPT-3.75-0627-2";
 
 export interface Event {
@@ -172,23 +170,12 @@ export async function extractFromEmail(
   dateReceived: Date
 ): Promise<Event[]> {
   // Get rid of shitty base64.
-  body = removeBase64(body);
-
-  const formattedDateReceived = dateReceived.toLocaleString("en-US", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "America/New_York",
-    hour12: false
-  });
+  body = removeArtifacts(body);
 
   let emailWithMetadata = dedent`
     \`\`\`
     Subject: ${subject}
-    Date Received: ${formattedDateReceived}
+    Date Received: ${formatDateInET(dateReceived)}
     Body:
     ${body}
     \`\`\`                
