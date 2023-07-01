@@ -5,9 +5,9 @@ import { ImapFlow } from "imapflow";
 import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 
 import { authenticate } from "./auth.js";
-import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm.js";
+import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvent.js";
 
-const LOOKBACK_DAYS = 60;
+const LOOKBACK_DAYS = 70;
 
 export default async function main() {
   const auth = await authenticate();
