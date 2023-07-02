@@ -1,13 +1,15 @@
 import { DataSource, Email, EmailSender, PrismaClient } from "@prisma/client";
-import assert, { AssertionError } from "assert";
+import assert from "assert";
 import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
 import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 
 import { authenticate } from "./auth.js";
+import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
+import { removeArtifacts } from "./llm/utils.js";
 
-const LOOKBACK_DAYS = 70;
+const LOOKBACK_DAYS = 90;
 
 export default async function main() {
   const auth = await authenticate();
@@ -48,6 +50,7 @@ export default async function main() {
 
     // seenUids: no need to look at these emails again. saves bandwidth and tokens.
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
+    // const seenUids = processedUids.map((email) => email.uid);
     const uids = allUids.filter((uid) => !seenUids.includes(uid));
     console.log(`Received unseen ${uids.length} mails in the past ${LOOKBACK_DAYS} days`);
     if (uids.length === 0) {
@@ -58,12 +61,32 @@ export default async function main() {
     // We need not fetch these processed emails to save bandwidth.
     const fetchedEmails = await prisma.email.findMany({
       where: { ...byUserAndRecent, modelName: { not: CURRENT_MODEL_NAME } },
-      include: { sender: true }
+      include: { sender: true },
+      orderBy: { receivedAt: "asc" }
     });
     const fetchedUids = fetchedEmails.map((email) => email.uid);
 
     let completed = 0;
-    const mailProcessors: Promise<void>[] = [];
+    const processingTasks = new Map<string, Deferred<void>>();
+    const mailProcessors: Promise<ProcessEmailResult>[] = [];
+
+    // Have to ensure the property: For emails A & B, if A.receivedAt <= B.receivedAt, then
+    // the promise processMail(..., A) must be created NO LATER THAN processMail(..., B).
+    mailProcessors.push(
+      ...fetchedEmails.map((email) =>
+        processMail(
+          prisma,
+          auth.user,
+          email.uid,
+          emailToRelaxedParsedMail(email),
+          processingTasks
+        ).then((value) => {
+          process.stdout.write((value as string).at(-1)!!);
+          return value;
+        })
+      )
+    );
+
     for await (let message of client.fetch(
       uids.filter((uid) => !fetchedUids.includes(uid)),
       { uid: true, envelope: true, source: true },
@@ -71,22 +94,24 @@ export default async function main() {
     )) {
       mailProcessors.push(
         simpleParser(message.source)
-          .then((parsed) => processMail(prisma, auth.user, message.uid, parsed))
-          .then(() => {
-            console.log(`Completed ${++completed} / ${mailProcessors.length}`);
+          .then((parsed) => processMail(prisma, auth.user, message.uid, parsed, processingTasks))
+          .then((value) => {
+            process.stdout.write((value as string).at(-1)!!);
+            return value;
           })
       );
     }
 
-    mailProcessors.push(
-      ...fetchedEmails.map((email) =>
-        processMail(prisma, auth.user, email.uid, emailToRelaxedParsedMail(email)).then(() => {
-          console.log(`Completed ${++completed} / ${mailProcessors.length}`);
-        })
-      )
-    );
-
-    await Promise.allSettled(mailProcessors);
+    const results = await Promise.allSettled(mailProcessors);
+    const resultsByType = new Map<ProcessEmailResult, number>();
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        const x = resultsByType.get(result.value);
+        if (x !== undefined) resultsByType.set(result.value, x + 1);
+        else resultsByType.set(result.value, 1);
+      }
+    }
+    for (const [key, value] of resultsByType) console.log(`${key}: ${value}`);
   } finally {
     lock.release();
     await prisma.$disconnect();
@@ -98,7 +123,7 @@ type RelaxedParsedMail = Omit<ParsedMail, "attachments" | "headers" | "headerLin
   from?: Omit<AddressObject, "html" | "text"> | undefined;
 };
 
-function isDormspam(parsed: RelaxedParsedMail): boolean {
+function isDormspam(text: string): boolean {
   // See https://how-to-dormspam.mit.edu/.
   const dormspamKeywords = [
     "bcc'd to all dorms",
@@ -112,7 +137,7 @@ function isDormspam(parsed: RelaxedParsedMail): boolean {
     "bcc to dormlists",
     "for bc-talk"
   ];
-  return dormspamKeywords.some((keyword) => parsed.text?.includes(keyword));
+  return dormspamKeywords.some((keyword) => text.includes(keyword));
 }
 
 function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): RelaxedParsedMail {
@@ -134,44 +159,87 @@ function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): Relax
   };
 }
 
+enum ProcessEmailResult {
+  MALFORMED_EMAIL = "malformed-email-M",
+  NOT_DORMSPAM = "not-dormspam-D",
+  DORMSPAM_BUT_ROOT_NOT_IN_DB = "dormspam-but-root-not-in-db-R",
+  DORMSPAM_BUT_NOT_EVENT_BY_GPT_3 = "dormspam-but-not-event-by-gpt-3",
+  DORMSPAM_BUT_NOT_EVENT_BY_GPT_4 = "dormspam-but-not-event-by-gpt-4",
+  DORMSPAM_PROCESSED_WITH_SAME_PROMPT = "dormspam-processed-with-same-prompt-P",
+  DORMSPAM_BUT_NETWORK_ERROR = "dormspam-but-network-error-N",
+  DORMSPAM_BUT_MALFORMED_JSON = "dormspam-but-malformed-json-J",
+  DORMSPAM_WITH_EVENT = "dormspam-with-event-E",
+}
+
 async function processMail(
   prisma: PrismaClient,
   scrapedBy: string,
   uid: number,
-  parsed: RelaxedParsedMail
-): Promise<void> {
+  parsed: RelaxedParsedMail,
+  processingTasks: Map<string, Deferred<void>>
+): Promise<ProcessEmailResult> {
   const receivedAt = parsed.date ?? new Date();
-  let email: Email | undefined = undefined;
-  let prevModelName: string | undefined;
 
+  const ignoreThisEmailForever = async () => {
+    await prisma.ignoredEmail.upsert({
+      where: { scrapedBy_uid: { scrapedBy, uid } },
+      create: { scrapedBy, uid, receivedAt },
+      update: {}
+    });
+  };
+
+  const { messageId, from, html, subject } = parsed;
+  // This must come before any await, so that this can be synchronously executed once the promise
+  // is created.
+  const deferred = new Deferred<void>();
   try {
-    assert(isDormspam(parsed));
-    const { messageId, from, html, subject } = parsed;
-    assert(messageId !== undefined && from !== undefined && html && subject !== undefined);
+    if (messageId !== undefined) processingTasks.set(messageId, deferred);
+
+    if (
+      messageId === undefined ||
+      from === undefined ||
+      from.value[0].address === undefined ||
+      !html ||
+      subject === undefined
+    ) {
+      await ignoreThisEmailForever();
+      return ProcessEmailResult.MALFORMED_EMAIL;
+    }
+
     const sender = from.value[0];
-    assert(sender.address !== undefined);
-    const senderAddress = sender.address;
+    const senderAddress = sender.address!!;
     const senderName = sender.name ?? senderAddress;
 
+    const text = removeArtifacts(parsed.text ?? convert(html));
+    if (!isDormspam(text)) {
+      await ignoreThisEmailForever();
+      return ProcessEmailResult.NOT_DORMSPAM;
+    }
+
     let inReplyTo = undefined;
+    let rootMessageId = messageId;
+
     if (parsed.inReplyTo !== undefined) {
       const inReplyToEmail = await prisma.email.findUnique({
         where: { messageId: parsed.inReplyTo }
       });
-      assert(inReplyToEmail !== null);
+      if (inReplyToEmail === null) return ProcessEmailResult.DORMSPAM_BUT_ROOT_NOT_IN_DB;
+      let root = inReplyToEmail;
+      while (root.inReplyToId !== null) {
+        const nextRoot = await prisma.email.findUnique({ where: { messageId: root.inReplyToId } });
+        if (nextRoot === null) return ProcessEmailResult.DORMSPAM_BUT_ROOT_NOT_IN_DB;
+        root = nextRoot;
+      }
+      rootMessageId = root.messageId;
       inReplyTo = {
         connect: { messageId: parsed.inReplyTo }
       };
+
+      const prevDeferred = processingTasks.get(inReplyToEmail.messageId);
+      if (prevDeferred !== undefined) await prevDeferred.promise;
     }
 
-    const prevEmail = await prisma.email.findFirst({
-      where: { messageId },
-      select: { modelName: true }
-    });
-
-    if (prevEmail !== undefined) prevModelName = prevEmail?.modelName ?? undefined;
-
-    email = await prisma.email.upsert({
+    await prisma.email.upsert({
       where: { messageId },
       create: {
         messageId,
@@ -192,28 +260,34 @@ async function processMail(
       update: { modelName: CURRENT_MODEL_NAME + "_PROCESSING" }
     });
 
-    const text = parsed.text ?? convert(html);
-    const events = await extractFromEmail(subject, text, receivedAt);
+    const existing = await prisma.event.findFirst({
+      where: { fromEmailId: rootMessageId },
+      include: { fromEmail: { select: { modelName: true } } }
+    });
 
-    let root = email;
-    while (root.inReplyToId !== null) {
-      root =
-        (await prisma.email.findUnique({ where: { messageId: root.inReplyToId } })) ??
-        assert.fail("Thread root not in database");
-    }
-
-    const existing = await prisma.event.findFirst({ where: { fromEmailId: root.messageId } });
     if (existing !== null) {
       // The existing email has already been processed with the current model, do nothing.
-      if (prevModelName === CURRENT_MODEL_NAME) return;
+      // if (receivedAt < existing.latestUpdateTime) return;
+      if (existing.fromEmail?.modelName === CURRENT_MODEL_NAME)
+        return ProcessEmailResult.DORMSPAM_PROCESSED_WITH_SAME_PROMPT;
       // The existing email has been processed by an older model / prompt. Delete all associated
       // events.
-      await prisma.event.deleteMany({ where: { fromEmailId: root.messageId } });
+      await prisma.event.deleteMany({ where: { fromEmailId: rootMessageId } });
     }
-    if (prevModelName === CURRENT_MODEL_NAME && existing !== null) return;
+
+    const result = await extractFromEmail(subject, text, receivedAt);
+
+    if (result.status === "error-malformed-json")
+      return ProcessEmailResult.DORMSPAM_BUT_MALFORMED_JSON;
+    if (result.status === "error-openai-network")
+      return ProcessEmailResult.DORMSPAM_BUT_NETWORK_ERROR;
+    if (result.status === "rejected-by-gpt-3")
+      return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_3;
+    if (result.status === "rejected-by-gpt-4")
+      return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_4;
 
     await Promise.all(
-      events.map((event) =>
+      result.events.map((event) =>
         prisma.event.create({
           data: {
             date: event.dateTime,
@@ -221,37 +295,19 @@ async function processMail(
             title: event.title,
             location: event.location,
             organizer: event.organizer,
-            fromEmail: { connect: { messageId: root.messageId } },
+            fromEmail: { connect: { messageId: rootMessageId } },
             text
           }
         })
       )
     );
-    for (const event of events) console.log(`Registered email: ${parsed.subject}: `, event);
 
+    for (const event of result.events) console.log(`Registered email: ${parsed.subject}: `, event);
     await prisma.email.update({ where: { messageId }, data: { modelName: CURRENT_MODEL_NAME } });
-  } catch (error) {
-    // The code above has been written such that assertion error only arises when the email is NOT
-    // a dormspam we care about at all. It needs not be reprocessed when we update our model&prompt
-    // so we may ignore it for good.
-    if (error instanceof AssertionError || error instanceof RangeError) {
-      console.log(`Ignored email: ${parsed.subject} ${uid}`);
-      if (isDormspam(parsed)) console.log("Ignored dormspam because: ", error);
-      await prisma.ignoredEmail.upsert({
-        where: { scrapedBy_uid: { scrapedBy, uid } },
-        create: { scrapedBy, uid, receivedAt },
-        update: {}
-      });
-    } else {
-      if (email !== undefined) {
-        await prisma.email.update({
-          where: { messageId: email.messageId },
-          // set modelName to empty so when we update our model & prompt, this email will be revisited.
-          data: { modelName: prevModelName ?? "" }
-        });
-      }
-      throw error;
-    }
+
+    return ProcessEmailResult.DORMSPAM_WITH_EVENT;
+  } finally {
+    deferred.resolve();
   }
 }
 

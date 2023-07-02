@@ -156,6 +156,30 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
+type NonEmptyArray<T> = [T, ...T[]];
+
+export type ExtractFromEmailResult =
+  | {
+      status: "rejected-by-gpt-3";
+      reason: string;
+    }
+  | {
+      status: "rejected-by-gpt-4";
+      reason: string;
+    }
+  | {
+      status: "admitted";
+      events: NonEmptyArray<Event>;
+    }
+  | {
+      status: "error-openai-network";
+      error: any;
+    }
+  | {
+      status: "error-malformed-json";
+      error: any;
+    };
+
 /**
  * Extracts the event information from an email.
  *
@@ -168,7 +192,7 @@ export async function extractFromEmail(
   subject: string,
   body: string,
   dateReceived: Date
-): Promise<Event[]> {
+): Promise<ExtractFromEmailResult> {
   // Get rid of shitty base64.
   body = removeArtifacts(body);
 
@@ -184,31 +208,50 @@ export async function extractFromEmail(
   if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
 
   const model = emailWithMetadata.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL;
+  let response;
 
-  const responseIsEvent = await createChatCompletionWithRetry({
-    model,
-    messages: [
-      { role: "system", content: PROMPT_INTRO_HAS_EVENT },
-      { role: "user", content: emailWithMetadata }
-    ],
-    functions: [HAS_EVENT_PREDICATE_FUNCTION],
-    function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
-  });
+  try {
+    const responseIsEvent = await createChatCompletionWithRetry({
+      model,
+      messages: [
+        { role: "system", content: PROMPT_INTRO_HAS_EVENT },
+        { role: "user", content: emailWithMetadata }
+      ],
+      functions: [HAS_EVENT_PREDICATE_FUNCTION],
+      function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
+    });
 
-  // console.log(responseIsEvent);
-  if (!responseIsEvent["has_event"]) return [];
+    // console.log(responseIsEvent);
+    if (!responseIsEvent["has_event"])
+      return { status: "rejected-by-gpt-3", reason: responseIsEvent["rejected_reason"] };
 
-  const response = await createChatCompletionWithRetry({
-    model: "gpt-4-0613",
-    messages: [
-      { role: "system", content: PROMPT_INTRO },
-      { role: "user", content: emailWithMetadata }
-    ],
-    functions: [EXTRACT_FUNCTION],
-    function_call: { name: EXTRACT_FUNCTION.name }
-  });
+    response = await createChatCompletionWithRetry({
+      model: "gpt-4-0613",
+      messages: [
+        { role: "system", content: PROMPT_INTRO },
+        { role: "user", content: emailWithMetadata }
+      ],
+      functions: [EXTRACT_FUNCTION],
+      function_call: { name: EXTRACT_FUNCTION.name }
+    });
+  } catch (error) {
+    return { status: "error-openai-network", error };
+  }
 
-  return tryParseEventJSON(response);
+  try {
+    const events = tryParseEventJSON(response);
+    if (events.length === 0 || response.rejected_reason)
+      return { status: "rejected-by-gpt-4", reason: response.rejected_reason };
+    return {
+      status: "admitted",
+      events: events as NonEmptyArray<Event>
+    };
+  } catch (error) {
+    return {
+      status: "error-malformed-json",
+      error
+    };
+  }
 }
 
 /**
@@ -219,29 +262,24 @@ export async function extractFromEmail(
  * @returns An event object.
  */
 function tryParseEventJSON(response: any): Event[] {
-  try {
-    const events: { [key: string]: string }[] = response.events;
-    return events.flatMap((rawEvent) => {
-      try {
-        const err = () => {
-          throw new Error();
-        };
-        const dateTime = new Date(rawEvent["date_time"]);
-        void dateTime.toISOString();
-        return [
-          {
-            title: rawEvent["title"] ?? err(),
-            dateTime,
-            location: rawEvent["location"] ?? err(),
-            organizer: rawEvent["organizer"] ?? err()
-          } as Event
-        ];
-      } catch {
-        return [];
-      }
-    });
-  } catch (error) {
-    console.log("Error: ", error);
-    return [];
-  }
+  const events: { [key: string]: string }[] = response.events;
+  return events.flatMap((rawEvent) => {
+    try {
+      const err = (field: string) => {
+        throw new Error(`Missing field ${field}`);
+      };
+      const dateTime = new Date(rawEvent["date_time"]);
+      void dateTime.toISOString();
+      return [
+        {
+          title: rawEvent["title"] ?? err("title"),
+          dateTime,
+          location: rawEvent["location"] ?? err("location"),
+          organizer: rawEvent["organizer"] ?? err("organizer")
+        } as Event
+      ];
+    } catch {
+      return [];
+    }
+  });
 }

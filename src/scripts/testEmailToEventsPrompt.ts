@@ -18,8 +18,25 @@ import { extractFromEmail } from "../llm/emailToEvents.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
+function isDormspam(parsed: any): boolean {
+  // See https://how-to-dormspam.mit.edu/.
+  const dormspamKeywords = [
+    "bcc'd to all dorms",
+    "bcc's to all dorms",
+    "bcc'd to dorms",
+    "bcc'ed dorms",
+    "bcc'ed to dorms",
+    "bcc to dorms",
+    "bcc'd to everyone",
+    "bcc dormlists",
+    "bcc to dormlists",
+    "for bc-talk"
+  ];
+  return dormspamKeywords.some((keyword) => parsed.text?.includes(keyword));
+}
+
 async function main(): Promise<void> {
-    process.env.DEBUG_MODE = "true";
+    // process.env.DEBUG_MODE = "true";
     const auth = await authenticate();
     const client = new ImapFlow({
         host: "outlook.office365.com",
@@ -58,6 +75,8 @@ async function main(): Promise<void> {
             skipHtmlToText: false
         });
         assert(parsed.html);
+        console.log(parsed.text);
+        console.log(isDormspam(parsed));
         const text = parsed.text ?? convert(parsed.html);
         const event = await extractFromEmail(
             parsed.subject ?? "No subject",
