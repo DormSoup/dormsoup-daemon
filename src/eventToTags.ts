@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 import { CURRENT_MODEL_NAME, addTagsToEvent } from "./llm/eventToTags.js";
 
-export default async function addTagsToEvents(lookbackDays: number = 30) {
+export default async function addTagsToEvents(lookbackDays: number = 60) {
   const prisma = new PrismaClient();
 
   try {
@@ -24,7 +24,7 @@ export default async function addTagsToEvents(lookbackDays: number = 30) {
         (async () => {
           await prisma.event.update({
             where: { id: event.id },
-            data: { tagsProcessedBy: CURRENT_MODEL_NAME + "_PROCESSING" }
+            data: { tagsProcessedBy: CURRENT_MODEL_NAME + "_PROCESSING", tags: { set: [] } }
           });
 
           const tags = await addTagsToEvent(event);

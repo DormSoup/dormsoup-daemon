@@ -11,7 +11,7 @@ export async function main() {
       input: process.stdin,
       output: process.stdout
     });
-    const eventName = await readlineInterface.question("Email subject: ");
+    const eventName = await readlineInterface.question("Event name: ");
     const event = await prisma.event.findFirstOrThrow({
       where: { title: { contains: eventName, mode: "insensitive" } }
     });

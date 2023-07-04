@@ -119,12 +119,20 @@ export function removeBase64(input: string) {
   return removeBase64(input.slice(0, start) + input.slice(end));
 }
 
+export function removeImageTags(input: string) {
+  return input.replace(/\[(cid|data):[^\]]+\]/g, "");
+}
+
+export function removeConsecutiveLinebreaks(input: string) {
+  return input.replace(/(\n\s*){3,}/g, "\n\n");
+}
+
 export function removeURL(input: string) {
   return input.replace(/(https?:\/\/[^\s]+)|(\[https?:\/\/[^\s]+\])/g, "");
 }
 
 export function removeArtifacts(input: string) {
-  return removeURL(removeBase64(input));
+  return removeConsecutiveLinebreaks(removeImageTags(removeURL(removeBase64(input))));
 }
 
 export function formatDateInET(date: Date) {
