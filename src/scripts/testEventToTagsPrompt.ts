@@ -5,12 +5,12 @@ import { addTagsToEvent } from "../llm/eventToTags.js";
 
 export async function main() {
   const prisma = new PrismaClient();
-  await prisma.$connect();
+
+  const readlineInterface = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
   try {
-    const readlineInterface = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
     const eventName = await readlineInterface.question("Event name: ");
     const event = await prisma.event.findFirstOrThrow({
       where: { title: { contains: eventName, mode: "insensitive" } }
@@ -18,6 +18,7 @@ export async function main() {
     console.log(event);
     console.log(await addTagsToEvent(event));
   } finally {
+    readlineInterface.close();
     await prisma.$disconnect();
   }
 }

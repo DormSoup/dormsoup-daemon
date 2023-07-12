@@ -4,70 +4,39 @@ import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "TAG-0703";
+export const CURRENT_MODEL_NAME = "TAG-0711";
 
 // PLAYsentation (Class Presentation), Logar(Concert), Alien Conspiracy
-const FORM_TAG_PROMPT = dedent`
+
+const PROMPT_INTRO = dedent`
+  You are a campus event tagger. Your job is to reason whether given tags apply to a specific event.
+
   Given is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   The email has been identified to contain the following event:
 
   Title: {INSERT TITLE HERE}
 
+`;
+
+const FORM_TAG_PROMPT =
+  PROMPT_INTRO +
+  dedent`
   The email body might contain multiple events, but you only need to identify the form tag for the event above.
 
-  Start with the form of the event. Possible event forms (choose one):
+  Start with the form of the event. Possible event forms (choose the closest one) (after | is explanation, not part of tag):
   - Theater (like a play or a musical, relating to theater)
   - Concert
-  - Talk (including workshops)
+  - Talk | (including workshops)
   - Movie Screening
   - Game
+  - Sale | (including fundraising)
+  - Dance | (dance show or dance party)
   - Rally
-  - Class Presentation (usually by students demonstrating their class projects)
-  - Study Break (relaxing event usually with food)
-  - Other
+  - Party | (including carnivals and festivals)
+  - Class Presentation | (usually by students demonstrating their class projects)
+  - Study Break | (relaxing event usually with food)
 
-  Only choose from tags given above. Think step by step and give reasons why you choose the tag you chose but not others.
-`;
-
-const CONTENT_TAG_PROMPT = dedent`
-  Given is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
-  The email has been identified to contain the following event:
-  
-  Title: {INSERT TITLE HERE}
-
-  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
-  
-  The event's content focuses on (choose at most two):
-  - EECS (Electrical Engineering and Computer Science)
-  - AI
-  - Math
-  - Biology
-  - HASS (specifically focusing the academic Humanities, Arts, and Social Sciences) (Music & Dance has its own tag)
-  - Music
-  - Dance
-  - Quant/Finance
-  - Entrepreneurship
-  - East Asian
-  - Religion
-  - Queer (LGBTQ+)
-  
-  Only choose from tags given above. Think step by step and give reasons why you choose the tag you chose but not others.
-`;
-
-const AMENITIES_TAG_PROMPT = dedent`
-  Given is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
-  The email has been identified to contain the following event:
-  
-  Title: {INSERT TITLE HERE}
-
-  The email body might contain multiple events, but you only need to identify whether the event contains free food or boba.
-
-  If the event provides free food or snacks, tag it with the type of food it provides.
-  If the event provides boba, tag it with "Boba". If both free food and boba is provided, choose "Boba". 
-
-  If no food or boba is given, feel free to leave this as none or null.
-  
-  Think step by step and give reasons why you (not) choose the tag you chose.
+  You must only choose from the tag given above. Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it.
 `;
 
 const ACCEPTABLE_FORM_TAGS = [
@@ -77,9 +46,11 @@ const ACCEPTABLE_FORM_TAGS = [
   "Study Break",
   "Movie Screening",
   "Game",
+  "Sale",
   "Rally",
-  "Class Presentation",
-  "Other"
+  "Dance",
+  "Party",
+  "Class Presentation"
 ];
 
 const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
@@ -98,15 +69,31 @@ const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
+const CONTENT_TAG_PROMPT =
+  PROMPT_INTRO +
+  dedent`
+  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
+
+  The event's content focuses on (choose at most two, don't have to choose any if not relevant):
+  - EECS (Electrical Engineering and Computer Science)
+  - AI
+  - Math
+  - Biology
+  - Finance (including Quant)
+  - Entrepreneurship (related to startups)
+  - East Asian
+  - Religion
+  - Queer (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
+
+  You must only choose from the tag given above. Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it (or why none applies).
+`;
+
 const ACCEPTABLE_CONTENT_TAGS = [
   "EECS",
   "AI",
   "Math",
   "Biology",
-  "HASS",
-  "Music",
-  "Dance",
-  "Quant/Finance",
+  "Finance",
   "Entrepreneurship",
   "East Asian",
   "Religion",
@@ -121,7 +108,7 @@ const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
     properties: {
       content_tag_1: {
         type: "string",
-        description: "The first tag of the content of the event.",
+        description: "The first tag of the content of the event. (not necessary)",
         enum: ACCEPTABLE_CONTENT_TAGS
       },
       content_tag_2: {
@@ -130,9 +117,21 @@ const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
         enum: ACCEPTABLE_CONTENT_TAGS
       }
     },
-    require: ["content_tag_1"]
+    require: []
   }
 };
+
+const AMENITIES_TAG_PROMPT =
+  PROMPT_INTRO +
+  dedent`
+  The email body might contain multiple events, but you only need to identify whether the specified event contains food or boba.
+
+  If you think the email contains food, snacks, or boba, output the part of the email that indicates whether the event contains food or boba.
+
+  If you think the email does not contain food, snacks, or boba, say why the event is unlikely to provide any edible items.
+
+  At the end of your reasoning, suggest a tag from ["Food", "Boba", "None"]. (Pick boba if the event provides both)
+`;
 
 const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "None"];
 
@@ -159,38 +158,58 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
 
-  async function tryTwice(
+  async function twoStagePrompt(
     prompt: string,
     fn: ChatCompletionFunctions,
     allowed: string[]
   ): Promise<string[]> {
     const results: string[] = [];
-    for (let i = 0; i < 2; i++) {
-      const response = await createChatCompletionWithRetry({
-        model: "gpt-3.5-turbo-0613",
-        messages: [
-          { role: "system", content: prompt.replace("{INSERT TITLE HERE}", event.title) },
-          { role: "user", content: text }
-        ],
-        functions: [fn],
-        function_call: { name: fn.name }
-      });
-      if (response["type_of_food"] && !/boba|(bubble tea)/i.test(response["type_of_food"]))
-        response["amenities_tag"] = "Free Food";
-      for (let property in response)
-        if (allowed.includes(response[property])) results.push(response[property]);
-      if (results.length > 0) break;
-    }
+    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
+    const responseFirstStage = await createChatCompletionWithRetry({
+      model: "gpt-3.5-turbo-0613",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text }
+      ],
+      temperature: 0
+    });
+    if (process.env.DEBUG_MODE)
+      console.log(responseFirstStage);
+    const responseSecondStage = await createChatCompletionWithRetry({
+      model: "gpt-3.5-turbo-0613",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+        { role: "assistant", content: responseFirstStage },
+        {
+          role: "user",
+          content:
+            "Remember, you can only pick from the tags given above. Now call the function with the tag of your conclusion:"
+        }
+      ],
+      functions: [fn],
+      function_call: { name: fn.name },
+      temperature: 0
+    });
+    if (process.env.DEBUG_MODE)
+      console.log(responseSecondStage);
+
+    // if (response["type_of_food"] && !/boba|(bubble tea)/i.test(response["type_of_food"]))
+    //  response["amenities_tag"] = "Free Food";
+    // console.log(response);
+    for (let property in responseSecondStage)
+      if (allowed.includes(responseSecondStage[property]))
+        results.push(responseSecondStage[property]);
     return results;
   }
 
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
-    tryTwice(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    tryTwice(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
-    tryTwice(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
+    twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
+    twoStagePrompt(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
+    twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
   let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
-  results = [...new Set(results)];  
+  results = [...new Set(results)];
   return results;
 }

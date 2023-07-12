@@ -93,6 +93,7 @@ export async function createChatCompletionWithRetry(
     completion.finish_reason === "stop" || completion.finish_reason === "function_call",
     "OpenAI API call failed"
   );
+  if (completion.message?.content) return completion.message?.content;
   let completionArguments = completion.message?.function_call?.arguments;
   assert(completionArguments !== undefined);
   try {
