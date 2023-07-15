@@ -18,7 +18,7 @@ import { extractFromEmail } from "../llm/emailToEvents.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
-function isDormspam(parsed: any): boolean {
+function isDormspam(text: string): boolean {
   // See https://how-to-dormspam.mit.edu/.
   const dormspamKeywords = [
     "bcc'd to all dorms",
@@ -32,7 +32,7 @@ function isDormspam(parsed: any): boolean {
     "bcc to dormlists",
     "for bc-talk"
   ];
-  return dormspamKeywords.some((keyword) => parsed.text?.includes(keyword));
+  return dormspamKeywords.some((keyword) => text.includes(keyword));
 }
 
 async function main(): Promise<void> {
@@ -75,9 +75,9 @@ async function main(): Promise<void> {
             skipHtmlToText: false
         });
         assert(parsed.html);
-        console.log(parsed.text);
-        console.log(isDormspam(parsed));
         const text = parsed.text ?? convert(parsed.html);
+        console.log(text);
+        console.log(isDormspam(text));
         const event = await extractFromEmail(
             parsed.subject ?? "No subject",
             text,
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     } finally {
         lock.release();
         await client.logout();
-        process.exit(0);
+        readlineInterface.close();
     }
 }
 

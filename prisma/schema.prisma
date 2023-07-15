@@ -26,6 +26,9 @@ model Event {
   organizer String
   date      DateTime
   location  String
+  duration  Int      @default(60)
+
+  liked EmailSender[]
 
   tags            Tag[]
   tagsProcessedBy String?
@@ -77,8 +80,10 @@ model IgnoredEmail {
   @@unique([scrapedBy, uid])
 }
 
+// Actually user.
 model EmailSender {
   email  String  @id
   name   String?
   emails Email[]
+  likes  Event[]
 }

@@ -10,7 +10,7 @@ import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
 import { removeArtifacts } from "./llm/utils.js";
 
-export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 90) {
+export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
   const auth = await authenticate();
   const client = new ImapFlow({
     host: "outlook.office365.com",
@@ -62,7 +62,6 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     });
     const fetchedUids = fetchedEmails.map((email) => email.uid);
 
-    let completed = 0;
     const processingTasks = new Map<string, Deferred<void>>();
     const mailProcessors: Promise<ProcessEmailResult>[] = [];
 
@@ -307,6 +306,7 @@ async function processMail(
             title: event.title,
             location: event.location,
             organizer: event.organizer,
+            duration: event.duration,
             fromEmail: { connect: { messageId: rootMessageId } },
             text
           }

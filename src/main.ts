@@ -3,7 +3,7 @@ import addTagsToEvents from "./eventToTags.js";
 
 export default async function main() {
   while (true) {
-    const lookbackDays = 60;
+    const lookbackDays = 30;
     console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
     const oldLog = console.log;
     console.log = (...args) => oldLog("  ", ...args);

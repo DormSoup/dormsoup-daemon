@@ -3,13 +3,14 @@ import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, formatDateInET, removeArtifacts } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "GPT-3.75-0627-2";
+export const CURRENT_MODEL_NAME = "GPT-3.75-0715";
 
 export interface Event {
   title: string;
   dateTime: Date;
   location: string;
   organizer: string;
+  duration: number;
 }
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
@@ -42,6 +43,7 @@ const PROMPT_INTRO = dedent`
   - The title of the event (up to five words. Use Title Case.)
   - The start time of the event (in HH:mm format)
   - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
+  - The estimated duration of the event (an integer, number of minutes)
   - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
   - The organization hosting the event (usually a club, however it is possible for individuals to organize events)
 
@@ -51,9 +53,10 @@ const PROMPT_INTRO = dedent`
     "events": [
       {
         "title": "UN x MIT: Immersive Storytelling",
-        "time_in_the_day": 18:00,
+        "time_in_the_day": "18:00",
         "date_time": "2023-04-03T18:00:00",
-        "location": "Room 3-333",
+        "duration": 90,
+        "location": "3-333",
         "organizer": "MIT UN"
       }
     ]
@@ -138,6 +141,10 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
               type: "string",
               description:
                 "The date & time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent)"
+            },
+            duration: {
+              type: "integer",
+              description: "The estimated duration of the event (an integer, number of minutes)"
             },
             location: {
               type: "string",
@@ -275,7 +282,8 @@ function tryParseEventJSON(response: any): Event[] {
           title: rawEvent["title"] ?? err("title"),
           dateTime,
           location: rawEvent["location"] ?? err("location"),
-          organizer: rawEvent["organizer"] ?? err("organizer")
+          organizer: rawEvent["organizer"] ?? err("organizer"),
+          duration: parseInt(rawEvent["duration"]) ?? err("duration")
         } as Event
       ];
     } catch {
