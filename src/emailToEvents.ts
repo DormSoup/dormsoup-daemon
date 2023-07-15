@@ -26,7 +26,7 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
   let lock = await client.getMailboxLock("INBOX");
   try {
     assert(typeof client.mailbox !== "boolean");
-    console.log(`Mailbox has ${client.mailbox.exists} messages`);
+    // console.log(`Mailbox has ${client.mailbox.exists} messages`);
     const since = new Date();
     since.setDate(new Date().getDate() - lookbackDays);
     const allUids = await client.search({ since: since }, { uid: true });
@@ -51,11 +51,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
     // const seenUids = processedUids.map((email) => email.uid);
     const uids = allUids.filter((uid) => !seenUids.includes(uid));
-    console.log(`Received unseen ${uids.length} mails in the past ${lookbackDays} days`);
-    if (uids.length === 0) {
-      console.log("Nothing to do...");
-      return;
-    }
+    console.log(`Received ${uids.length} unseen mails in the past ${lookbackDays} days.`);
+    if (uids.length === 0) return;
 
     // We need not fetch these processed emails to save bandwidth.
     const fetchedEmails = await prisma.email.findMany({
@@ -205,6 +202,12 @@ async function processMail(
       return ProcessEmailResult.MALFORMED_EMAIL;
     }
 
+    const emailWithSameMessageId = await prisma.email.findUnique({ where: { messageId } });
+    if (emailWithSameMessageId !== null && emailWithSameMessageId.uid !== uid) {
+      await ignoreThisEmailForever();
+      return ProcessEmailResult.MALFORMED_EMAIL;
+    }
+
     const sender = from.value[0];
     const senderAddress = sender.address!!;
     const senderName = sender.name ?? senderAddress;
@@ -259,6 +262,10 @@ async function processMail(
       update: { modelName: CURRENT_MODEL_NAME + "_PROCESSING" }
     });
 
+    const markProcessedByCurrentModel = async () => {
+      await prisma.email.update({ where: { messageId }, data: { modelName: CURRENT_MODEL_NAME } });
+    };
+
     const existing = await prisma.event.findFirst({
       where: { fromEmailId: rootMessageId },
       include: { fromEmail: { select: { modelName: true } } }
@@ -267,8 +274,10 @@ async function processMail(
     if (existing !== null) {
       // The existing email has already been processed with the current model, do nothing.
       // if (receivedAt < existing.latestUpdateTime) return;
-      if (existing.fromEmail?.modelName === CURRENT_MODEL_NAME)
+      if (existing.fromEmail?.modelName === CURRENT_MODEL_NAME) {
+        await markProcessedByCurrentModel();
         return ProcessEmailResult.DORMSPAM_PROCESSED_WITH_SAME_PROMPT;
+      }
       // The existing email has been processed by an older model / prompt. Delete all associated
       // events.
       await prisma.event.deleteMany({ where: { fromEmailId: rootMessageId } });
@@ -280,10 +289,14 @@ async function processMail(
       return ProcessEmailResult.DORMSPAM_BUT_MALFORMED_JSON;
     if (result.status === "error-openai-network")
       return ProcessEmailResult.DORMSPAM_BUT_NETWORK_ERROR;
-    if (result.status === "rejected-by-gpt-3")
+    if (result.status === "rejected-by-gpt-3") {
+      await markProcessedByCurrentModel();
       return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_3;
-    if (result.status === "rejected-by-gpt-4")
+    }
+    if (result.status === "rejected-by-gpt-4") {
+      await markProcessedByCurrentModel();
       return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_4;
+    }
 
     await Promise.all(
       result.events.map((event) =>
@@ -301,8 +314,8 @@ async function processMail(
       )
     );
 
-    for (const event of result.events) console.log(`Registered email: ${parsed.subject}: `, event);
-    await prisma.email.update({ where: { messageId }, data: { modelName: CURRENT_MODEL_NAME } });
+    for (const event of result.events) console.log(`\nRegistered email: ${parsed.subject}: `, event);
+    markProcessedByCurrentModel();
 
     return ProcessEmailResult.DORMSPAM_WITH_EVENT;
   } finally {

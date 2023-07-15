@@ -8,7 +8,6 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
   try {
     const since = new Date();
     since.setDate(new Date().getDate() - lookbackDays);
-    console.log(since);
     const events = await prisma.event.findMany({
       where: {
         date: { gte: since },
@@ -18,7 +17,7 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
         ]
       }
     });
-    console.log(`Need to tag ${events.length} events`);
+    console.log(`Need to tag ${events.length} event.`);
     await Promise.allSettled(
       events.map((event) =>
         (async () => {
@@ -28,7 +27,7 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
           });
 
           const tags = await addTagsToEvent(event);
-          console.log(`Event "${event.title}$ has tags: ${tags}`);
+          console.log(`Event "${event.title}" has tags: ${tags}`);
 
           for (const tag of tags) {
             await prisma.event.update({

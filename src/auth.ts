@@ -46,13 +46,13 @@ export async function authenticate(): Promise<AuthResult> {
   try {
     const accounts = await pca.getAllAccounts();
     if (accounts.length > 0) {
-      console.log("Attempting to acquire token silently for user", accounts[0].username);
+      // console.log("Attempting to acquire token silently for user", accounts[0].username);
       const response = await pca.acquireTokenSilent({
         account: accounts[0],
         scopes
       });
       if (response !== null) {
-        console.log("Acquired token silently for user", accounts[0].username);
+        // console.log("Acquired token silently for user", accounts[0].username);
         return {
           user: response.account!.username,
           accessToken: response.accessToken,
