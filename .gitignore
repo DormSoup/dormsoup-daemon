@@ -1,7 +1,6 @@
 node_modules
 package-lock.json
 testmails
-prisma/migrations
 
 .env
 .token.json

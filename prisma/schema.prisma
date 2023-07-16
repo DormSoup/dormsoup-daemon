@@ -49,6 +49,7 @@ model Email {
   scrapedBy String
   // The uid of this email in the account's mailbox.
   uid       Int
+  @@unique([scrapedBy, uid])
 
   messageId   String  @id
   inReplyTo   Email?  @relation("InReplyTo", fields: [inReplyToId], references: [messageId])
