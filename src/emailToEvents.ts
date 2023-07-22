@@ -1,4 +1,3 @@
-
 import { DataSource, Email, EmailSender, PrismaClient } from "@prisma/client";
 import assert from "assert";
 import { convert } from "html-to-text";
@@ -118,21 +117,27 @@ type RelaxedParsedMail = Omit<ParsedMail, "attachments" | "headers" | "headerLin
   from?: Omit<AddressObject, "html" | "text"> | undefined;
 };
 
+// See https://how-to-dormspam.mit.edu/.
+const dormspamKeywords = [
+  "bcc'd to all dorms",
+  "bcc's to all dorms",
+  "bcc'd to dorms",
+  "bcc'ed dorms",
+  "bcc'ed to dorms",
+  "bcc to dorms",
+  "bcc'd to everyone",
+  "bcc dormlists",
+  "bcc to dormlists",
+  "for bc-talk"
+];
+
+const isDormspamRegex = new RegExp(
+  dormspamKeywords.map((keyword) => `(${keyword.replaceAll(/ +/g, "\\s+")})`).join("|"),
+  "ui"
+);
+
 function isDormspam(text: string): boolean {
-  // See https://how-to-dormspam.mit.edu/.
-  const dormspamKeywords = [
-    "bcc'd to all dorms",
-    "bcc's to all dorms",
-    "bcc'd to dorms",
-    "bcc'ed dorms",
-    "bcc'ed to dorms",
-    "bcc to dorms",
-    "bcc'd to everyone",
-    "bcc dormlists",
-    "bcc to dormlists",
-    "for bc-talk"
-  ];
-  return dormspamKeywords.some((keyword) => text.includes(keyword));
+  return isDormspamRegex.test(text);
 }
 
 function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): RelaxedParsedMail {
@@ -163,7 +168,7 @@ enum ProcessEmailResult {
   DORMSPAM_PROCESSED_WITH_SAME_PROMPT = "dormspam-processed-with-same-prompt-P",
   DORMSPAM_BUT_NETWORK_ERROR = "dormspam-but-network-error-N",
   DORMSPAM_BUT_MALFORMED_JSON = "dormspam-but-malformed-json-J",
-  DORMSPAM_WITH_EVENT = "dormspam-with-event-E",
+  DORMSPAM_WITH_EVENT = "dormspam-with-event-E"
 }
 
 async function processMail(
@@ -189,6 +194,7 @@ async function processMail(
   const deferred = new Deferred<void>();
   try {
     if (messageId !== undefined) processingTasks.set(messageId, deferred);
+    console.log("Subject:", subject, "uid:", uid);
 
     if (
       messageId === undefined ||
@@ -314,7 +320,8 @@ async function processMail(
       )
     );
 
-    for (const event of result.events) console.log(`\nRegistered email: ${parsed.subject}: `, event);
+    for (const event of result.events)
+      console.log(`\nRegistered email: ${parsed.subject}: `, event);
     markProcessedByCurrentModel();
 
     return ProcessEmailResult.DORMSPAM_WITH_EVENT;
