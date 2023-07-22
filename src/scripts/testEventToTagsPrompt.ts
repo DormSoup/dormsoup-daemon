@@ -4,6 +4,7 @@ import readline from "readline/promises";
 import { addTagsToEvent } from "../llm/eventToTags.js";
 
 export async function main() {
+  process.env.DEBUG_MODE = "true";
   const prisma = new PrismaClient();
 
   const readlineInterface = readline.createInterface({

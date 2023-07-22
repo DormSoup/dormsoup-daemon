@@ -4,7 +4,7 @@ import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "TAG-0711";
+export const CURRENT_MODEL_NAME = "TAG-0722";
 
 // PLAYsentation (Class Presentation), Logar(Concert), Alien Conspiracy
 
@@ -17,6 +17,20 @@ const PROMPT_INTRO = dedent`
   Title: {INSERT TITLE HERE}
 
 `;
+
+const ACCEPTABLE_FORM_TAGS = [
+  "Theater",
+  "Concert",
+  "Talk",
+  "Study Break",
+  "Movie Screening",
+  "Game",
+  "Sale",
+  "Rally",
+  "Dance",
+  "Party",
+  "Class Presentation"
+];
 
 const FORM_TAG_PROMPT =
   PROMPT_INTRO +
@@ -36,22 +50,11 @@ const FORM_TAG_PROMPT =
   - Class Presentation | (usually by students demonstrating their class projects)
   - Study Break | (relaxing event usually with food)
 
-  You must only choose from the tag given above. Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it.
-`;
+  Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it.
 
-const ACCEPTABLE_FORM_TAGS = [
-  "Theater",
-  "Concert",
-  "Talk",
-  "Study Break",
-  "Movie Screening",
-  "Game",
-  "Sale",
-  "Rally",
-  "Dance",
-  "Party",
-  "Class Presentation"
-];
+  Your answer must begin with: "Out of the the tags [${ACCEPTABLE_FORM_TAGS.join(", ")}]..."
+
+  `;
 
 const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
   name: "tag_event_form",
@@ -69,25 +72,6 @@ const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
-const CONTENT_TAG_PROMPT =
-  PROMPT_INTRO +
-  dedent`
-  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
-
-  The event's content focuses on (choose at most two, don't have to choose any if not relevant):
-  - EECS (Electrical Engineering and Computer Science)
-  - AI
-  - Math
-  - Biology
-  - Finance (including Quant)
-  - Entrepreneurship (related to startups)
-  - East Asian
-  - Religion
-  - Queer (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
-
-  You must only choose from the tag given above. Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it (or why none applies).
-`;
-
 const ACCEPTABLE_CONTENT_TAGS = [
   "EECS",
   "AI",
@@ -99,6 +83,27 @@ const ACCEPTABLE_CONTENT_TAGS = [
   "Religion",
   "Queer"
 ];
+
+const CONTENT_TAG_PROMPT =
+  PROMPT_INTRO +
+  dedent`
+  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
+
+  The event's content focuses on (choose at most two, don't have to choose any if not relevant):
+  - EECS | (Electrical Engineering and Computer Science)
+  - AI
+  - Math
+  - Biology
+  - Finance | (including Quant)
+  - Entrepreneurship | (related to startups)
+  - East Asian
+  - Religion
+  - Queer | (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
+
+  Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it (or why none applies).
+
+  Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
+`;
 
 const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
   name: "tag_event_content",
@@ -133,7 +138,7 @@ const AMENITIES_TAG_PROMPT =
   At the end of your reasoning, suggest a tag from ["Food", "Boba", "None"]. (Pick boba if the event provides both)
 `;
 
-const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "None"];
+const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "Food", "None"];
 
 const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
   name: "tag_event_amenities",
@@ -173,8 +178,6 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
       ],
       temperature: 0
     });
-    if (process.env.DEBUG_MODE)
-      console.log(responseFirstStage);
     const responseSecondStage = await createChatCompletionWithRetry({
       model: "gpt-3.5-turbo-0613",
       messages: [
@@ -191,12 +194,13 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
       function_call: { name: fn.name },
       temperature: 0
     });
-    if (process.env.DEBUG_MODE)
+    if (process.env.DEBUG_MODE) {
+      console.log("----------Extracted Tags----------");
       console.log(responseSecondStage);
-
-    // if (response["type_of_food"] && !/boba|(bubble tea)/i.test(response["type_of_food"]))
-    //  response["amenities_tag"] = "Free Food";
-    // console.log(response);
+      console.log("----------Justification---------");
+      console.log(responseFirstStage);
+      console.log("----------End Response----------");
+    }
     for (let property in responseSecondStage)
       if (allowed.includes(responseSecondStage[property]))
         results.push(responseSecondStage[property]);

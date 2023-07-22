@@ -90,7 +90,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
         simpleParser(message.source)
           .then((parsed) => processMail(prisma, auth.user, message.uid, parsed, processingTasks))
           .then((value) => {
-            process.stdout.write((value as string).at(-1)!!);
+            if (value !== "dormspam-but-root-not-in-db-R")
+              process.stdout.write((value as string).at(-1)!!);
             return value;
           })
       );
@@ -194,7 +195,6 @@ async function processMail(
   const deferred = new Deferred<void>();
   try {
     if (messageId !== undefined) processingTasks.set(messageId, deferred);
-    console.log("Subject:", subject, "uid:", uid);
 
     if (
       messageId === undefined ||
@@ -245,6 +245,8 @@ async function processMail(
       const prevDeferred = processingTasks.get(inReplyToEmail.messageId);
       if (prevDeferred !== undefined) await prevDeferred.promise;
     }
+
+    console.log("Subject", subject, "uid", uid);
 
     await prisma.email.upsert({
       where: { messageId },
