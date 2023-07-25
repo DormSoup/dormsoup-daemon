@@ -104,6 +104,14 @@ export async function createChatCompletionWithRetry(
   }
 }
 
+export async function createEmbedding(text: string): Promise<number[]> {
+  const response = await openai.createEmbedding({
+    model: "text-embedding-ada-002",
+    input: text
+  });
+  return response.data.data[0].embedding;
+}
+
 export function removeBase64(input: string) {
   const startKeyword = ";base64,";
   const start = input.indexOf(";base64,");
