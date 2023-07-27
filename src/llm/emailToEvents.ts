@@ -277,13 +277,14 @@ function tryParseEventJSON(response: any): Event[] {
       };
       const dateTime = new Date(rawEvent["date_time"]);
       void dateTime.toISOString();
+      const duration = parseInt(rawEvent["duration"]);
       return [
         {
           title: rawEvent["title"] ?? err("title"),
           dateTime,
           location: rawEvent["location"] ?? err("location"),
           organizer: rawEvent["organizer"] ?? err("organizer"),
-          duration: parseInt(rawEvent["duration"]) ?? err("duration")
+          duration: Number.isInteger(duration) ? duration : 60
         } as Event
       ];
     } catch {
