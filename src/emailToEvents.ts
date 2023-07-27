@@ -356,11 +356,10 @@ async function processMail(
             continue outer;
           }
         }
-        const newEvent = await prisma.event.create({ data: newEventData });
-        const embedding = await createEmbedding(event.title);
-        upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
-        console.log("Event ", event, " inserted ");
       }
+      const newEvent = await prisma.event.create({ data: newEventData });
+      upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
+      console.log("Event ", event, " inserted ");
     }
 
     markProcessedByCurrentModel();
