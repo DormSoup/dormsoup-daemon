@@ -1,4 +1,4 @@
-import { DataSource, Email, EmailSender, PrismaClient } from "@prisma/client";
+import { DataSource, Email, EmailSender, Event, PrismaClient } from "@prisma/client";
 import assert from "assert";
 import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
@@ -7,7 +7,8 @@ import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
-import { removeArtifacts } from "./llm/utils.js";
+import { createEmbedding, removeArtifacts } from "./llm/utils.js";
+import { deleteEmbedding, flushEmbeddings, getEmbedding, getKNearestNeighbors, upsertEmbedding } from "./vectordb.js";
 
 export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
   const auth = await authenticate();
@@ -35,16 +36,19 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
       scrapedBy: auth.user,
       uid: { gte: minUid }
     };
+    console.trace("connected and authenticated");
     // ignoredUids: emails that cannot be dormspams because they don't contain the keywords.
     const ignoredUids = await prisma.ignoredEmail.findMany({
       select: { uid: true },
       where: byUserAndRecent
     });
+    console.trace("ignoreUids: ", ignoredUids);
     // processedUids: emails that have been processed by the current model.
     const processedUids = await prisma.email.findMany({
       select: { uid: true },
       where: { ...byUserAndRecent, modelName: { equals: CURRENT_MODEL_NAME } }
     });
+    console.trace("processedUids: ", processedUids);
 
     // seenUids: no need to look at these emails again. saves bandwidth and tokens.
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
@@ -246,7 +250,7 @@ async function processMail(
       if (prevDeferred !== undefined) await prevDeferred.promise;
     }
 
-    console.log("Subject", subject, "uid", uid);
+    console.log("\nSubject", subject, "uid", uid);
 
     await prisma.email.upsert({
       where: { messageId },
@@ -305,29 +309,83 @@ async function processMail(
       return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_4;
     }
 
-    await Promise.all(
-      result.events.map((event) =>
-        prisma.event.create({
-          data: {
-            date: event.dateTime,
-            source: DataSource.DORMSPAM,
-            title: event.title,
-            location: event.location,
-            organizer: event.organizer,
-            duration: event.duration,
-            fromEmail: { connect: { messageId: rootMessageId } },
-            text
+    if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);
+    outer: for (const event of result.events) {
+      const embedding = await createEmbedding(event.title);
+      upsertEmbedding(event.title, embedding, { eventIds: [] });
+      const knn = getKNearestNeighbors(getEmbedding(event.title)!.embeddings, 3);
+      const newEventData = {
+        date: event.dateTime,
+        source: DataSource.DORMSPAM,
+        title: event.title,
+        location: event.location,
+        organizer: event.organizer,
+        duration: event.duration,
+        fromEmail: { connect: { messageId: rootMessageId } },
+        text
+      };
+      for (const [title, distance] of knn) {
+        const { metadata } = getEmbedding(title)!;
+        for (const eventId of metadata.eventIds) {
+          const otherEvent = (await prisma.event.findUnique({
+            where: { id: eventId },
+            include: { fromEmail: { select: { receivedAt: true } } }
+          }));
+          if (otherEvent === null) {
+            console.warn("Event id ", eventId, " is in embedding DB metadata but not in DB");
+            continue;
           }
-        })
-      )
-    );
+          const merged = mergeEvents(
+            { ...event, date: event.dateTime, fromEmail: { receivedAt } },
+            otherEvent
+          );
+          if (merged === "latter") {
+            console.log("Event ", event, " not inserted because it is merged with ", otherEvent);
+            continue outer;
+          }
+          if (merged === "former") {
+            const embedding = await createEmbedding(event.title);
+            upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
+            metadata.eventIds = metadata.eventIds.filter((id) => id !== eventId);
+            if (metadata.eventIds.length === 0) deleteEmbedding(title);
+            console.log("Event ", event, " updates previous event ", otherEvent);
+            await prisma.event.update({
+              where: { id: eventId },
+              data: newEventData
+            });
+            continue outer;
+          }
+        }
+        const newEvent = await prisma.event.create({ data: newEventData });
+        const embedding = await createEmbedding(event.title);
+        upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
+        console.log("Event ", event, " inserted ");
+      }
+    }
 
-    for (const event of result.events)
-      console.log(`\nRegistered email: ${parsed.subject}: `, event);
     markProcessedByCurrentModel();
 
     return ProcessEmailResult.DORMSPAM_WITH_EVENT;
   } finally {
     deferred.resolve();
   }
+}
+
+function mergeEvents(
+  event1: { date: Date; location: string; fromEmail: null | { receivedAt: Date } },
+  event2: { date: Date; location: string; fromEmail: null | { receivedAt: Date } }
+): "unmergable" | "former" | "latter" {
+  const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
+  const sameDate =
+    ((isAllDay(event1.date) || isAllDay(event2.date)) &&
+      event1.date.getDay() === event2.date.getDay()) ||
+    event1.date.getTime() === event2.date.getTime();
+  if (!sameDate) return "unmergable";
+  const sameLocation =
+    event1.location.toLowerCase() === "unknown" ||
+    event2.location.toLowerCase() === "unknown" ||
+    event1.location.toLowerCase().includes(event2.location.toLowerCase()) ||
+    event2.location.toLowerCase().includes(event1.location.toLowerCase());
+  if (!sameLocation) return "unmergable";
+  return event1.fromEmail!.receivedAt <= event2.fromEmail!.receivedAt ? "latter" : "former";
 }

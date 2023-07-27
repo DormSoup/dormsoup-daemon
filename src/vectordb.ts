@@ -24,11 +24,21 @@ export async function flushEmbeddings() {
   await fs.writeFile(DB_PATH, JSON.stringify(embeddingDB));
 }
 
-export function insertEmbedding(key: string, embeddings: number[], metadata: EmbeddingMetadata) {
-  embeddingDB[key] = {
-    embeddings,
-    metadata
-  };
+export function upsertEmbedding(key: string, embeddings: number[], metadata: EmbeddingMetadata) {
+  if (embeddingDB[key]) {
+    embeddingDB[key].metadata.eventIds = [
+      ...new Set([...embeddingDB[key].metadata.eventIds, ...metadata.eventIds])
+    ];
+  } else {
+    embeddingDB[key] = {
+      embeddings,
+      metadata
+    };
+  }
+}
+
+export function deleteEmbedding(key: string) {
+  delete embeddingDB[key];
 }
 
 export function getEmbedding(

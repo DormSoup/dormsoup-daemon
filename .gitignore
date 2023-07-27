@@ -6,7 +6,7 @@ testmails
 .token.json
 .vscode
 
-embeddings.json
+embeddings.json*
 
 sync.sh
 .DS_Store
