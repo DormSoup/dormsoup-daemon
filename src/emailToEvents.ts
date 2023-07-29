@@ -8,7 +8,13 @@ import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
-import { deleteEmbedding, flushEmbeddings, getEmbedding, getKNearestNeighbors, upsertEmbedding } from "./vectordb.js";
+import {
+  deleteEmbedding,
+  flushEmbeddings,
+  getEmbedding,
+  getKNearestNeighbors,
+  upsertEmbedding
+} from "./vectordb.js";
 
 export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
   const auth = await authenticate();
@@ -94,8 +100,20 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
         simpleParser(message.source)
           .then((parsed) => processMail(prisma, auth.user, message.uid, parsed, processingTasks))
           .then((value) => {
-            if (value !== "dormspam-but-root-not-in-db-R")
-              process.stdout.write((value as string).at(-1)!!);
+            if (value !== "dormspam-but-root-not-in-db") {
+              const acryonyms: { [key in ProcessEmailResult]: string } = {
+                "malformed-email": "M",
+                "not-dormspam": "D",
+                "dormspam-but-root-not-in-db": "R",
+                "dormspam-but-not-event-by-gpt-3": "3",
+                "dormspam-but-not-event-by-gpt-4": "4",
+                "dormspam-processed-with-same-prompt": "P",
+                "dormspam-but-network-error": "N",
+                "dormspam-but-malformed-json": "J",
+                "dormspam-with-event": "E"
+              };
+              process.stdout.write(acryonyms[value]);
+            }
             return value;
           })
       );
@@ -164,17 +182,16 @@ function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): Relax
   };
 }
 
-enum ProcessEmailResult {
-  MALFORMED_EMAIL = "malformed-email-M",
-  NOT_DORMSPAM = "not-dormspam-D",
-  DORMSPAM_BUT_ROOT_NOT_IN_DB = "dormspam-but-root-not-in-db-R",
-  DORMSPAM_BUT_NOT_EVENT_BY_GPT_3 = "dormspam-but-not-event-by-gpt-3",
-  DORMSPAM_BUT_NOT_EVENT_BY_GPT_4 = "dormspam-but-not-event-by-gpt-4",
-  DORMSPAM_PROCESSED_WITH_SAME_PROMPT = "dormspam-processed-with-same-prompt-P",
-  DORMSPAM_BUT_NETWORK_ERROR = "dormspam-but-network-error-N",
-  DORMSPAM_BUT_MALFORMED_JSON = "dormspam-but-malformed-json-J",
-  DORMSPAM_WITH_EVENT = "dormspam-with-event-E"
-}
+type ProcessEmailResult =
+  | "malformed-email"
+  | "not-dormspam"
+  | "dormspam-but-root-not-in-db"
+  | "dormspam-but-not-event-by-gpt-3"
+  | "dormspam-but-not-event-by-gpt-4"
+  | "dormspam-processed-with-same-prompt"
+  | "dormspam-but-network-error"
+  | "dormspam-but-malformed-json"
+  | "dormspam-with-event";
 
 async function processMail(
   prisma: PrismaClient,
@@ -208,13 +225,13 @@ async function processMail(
       subject === undefined
     ) {
       await ignoreThisEmailForever();
-      return ProcessEmailResult.MALFORMED_EMAIL;
+      return "malformed-email";
     }
 
     const emailWithSameMessageId = await prisma.email.findUnique({ where: { messageId } });
     if (emailWithSameMessageId !== null && emailWithSameMessageId.uid !== uid) {
       await ignoreThisEmailForever();
-      return ProcessEmailResult.MALFORMED_EMAIL;
+      return "malformed-email";
     }
 
     const sender = from.value[0];
@@ -224,7 +241,7 @@ async function processMail(
     const text = removeArtifacts(parsed.text ?? convert(html));
     if (!isDormspam(text)) {
       await ignoreThisEmailForever();
-      return ProcessEmailResult.NOT_DORMSPAM;
+      return "not-dormspam";
     }
 
     let inReplyTo = undefined;
@@ -234,11 +251,11 @@ async function processMail(
       const inReplyToEmail = await prisma.email.findUnique({
         where: { messageId: parsed.inReplyTo }
       });
-      if (inReplyToEmail === null) return ProcessEmailResult.DORMSPAM_BUT_ROOT_NOT_IN_DB;
+      if (inReplyToEmail === null) return "dormspam-but-root-not-in-db";
       let root = inReplyToEmail;
       while (root.inReplyToId !== null) {
         const nextRoot = await prisma.email.findUnique({ where: { messageId: root.inReplyToId } });
-        if (nextRoot === null) return ProcessEmailResult.DORMSPAM_BUT_ROOT_NOT_IN_DB;
+        if (nextRoot === null) return "dormspam-but-root-not-in-db";
         root = nextRoot;
       }
       rootMessageId = root.messageId;
@@ -287,7 +304,7 @@ async function processMail(
       // if (receivedAt < existing.latestUpdateTime) return;
       if (existing.fromEmail?.modelName === CURRENT_MODEL_NAME) {
         await markProcessedByCurrentModel();
-        return ProcessEmailResult.DORMSPAM_PROCESSED_WITH_SAME_PROMPT;
+        return "dormspam-processed-with-same-prompt";
       }
       // The existing email has been processed by an older model / prompt. Delete all associated
       // events.
@@ -296,17 +313,15 @@ async function processMail(
 
     const result = await extractFromEmail(subject, text, receivedAt);
 
-    if (result.status === "error-malformed-json")
-      return ProcessEmailResult.DORMSPAM_BUT_MALFORMED_JSON;
-    if (result.status === "error-openai-network")
-      return ProcessEmailResult.DORMSPAM_BUT_NETWORK_ERROR;
+    if (result.status === "error-malformed-json") return "dormspam-but-malformed-json";
+    if (result.status === "error-openai-network") return "dormspam-but-network-error";
     if (result.status === "rejected-by-gpt-3") {
       await markProcessedByCurrentModel();
-      return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_3;
+      return "dormspam-but-not-event-by-gpt-3";
     }
     if (result.status === "rejected-by-gpt-4") {
       await markProcessedByCurrentModel();
-      return ProcessEmailResult.DORMSPAM_BUT_NOT_EVENT_BY_GPT_4;
+      return "dormspam-but-not-event-by-gpt-4";
     }
 
     if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);
@@ -327,10 +342,10 @@ async function processMail(
       for (const [title, distance] of knn) {
         const { metadata } = getEmbedding(title)!;
         for (const eventId of metadata.eventIds) {
-          const otherEvent = (await prisma.event.findUnique({
+          const otherEvent = await prisma.event.findUnique({
             where: { id: eventId },
             include: { fromEmail: { select: { receivedAt: true } } }
-          }));
+          });
           if (otherEvent === null) {
             console.warn("Event id ", eventId, " is in embedding DB metadata but not in DB");
             continue;
@@ -364,7 +379,7 @@ async function processMail(
 
     markProcessedByCurrentModel();
 
-    return ProcessEmailResult.DORMSPAM_WITH_EVENT;
+    return "dormspam-with-event";
   } finally {
     deferred.resolve();
   }
@@ -375,9 +390,11 @@ function mergeEvents(
   event2: { date: Date; location: string; fromEmail: null | { receivedAt: Date } }
 ): "unmergable" | "former" | "latter" {
   const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
+  // Get the day since unix epoch
   const sameDate =
     ((isAllDay(event1.date) || isAllDay(event2.date)) &&
-      event1.date.getDay() === event2.date.getDay()) ||
+      Math.floor(event1.date.getTime() / 86400000) ===
+        Math.floor(event2.date.getTime() / 86400000)) ||
     event1.date.getTime() === event2.date.getTime();
   if (!sameDate) return "unmergable";
   const sameLocation =
