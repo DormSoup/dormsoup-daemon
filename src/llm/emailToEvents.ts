@@ -2,6 +2,7 @@ import dedent from "dedent";
 import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, formatDateInET, removeArtifacts } from "./utils.js";
+import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
 
 export const CURRENT_MODEL_NAME = "GPT-3.75-0715";
 
@@ -81,12 +82,7 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
-/*
-
- */
-
 //  An event is something that any MIT student could attend at a specific time and location, so if the email is about an audition, job opportunity, or seeking staff for a production, it is not an event.
-
 const SHORT_MODEL = "gpt-3.5-turbo-0613";
 const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
 const LONG_THRESHOLD = 10000; // 12k chars = 3k tokens
@@ -198,9 +194,9 @@ export type ExtractFromEmailResult =
 export async function extractFromEmail(
   subject: string,
   body: string,
-  dateReceived: Date
+  dateReceived: Date,
+  logger: SpecificDormspamProcessingLogger
 ): Promise<ExtractFromEmailResult> {
-  // Get rid of shitty base64.
   body = removeArtifacts(body);
 
   let emailWithMetadata = dedent`
@@ -214,10 +210,13 @@ export async function extractFromEmail(
 
   if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
 
+  logger.logBlock("assembled prompt", emailWithMetadata);
+
   const model = emailWithMetadata.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL;
   let response;
 
   try {
+    logger.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
     const responseIsEvent = await createChatCompletionWithRetry({
       model,
       messages: [
@@ -228,10 +227,12 @@ export async function extractFromEmail(
       function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
     });
 
+    logger.logBlock("is_event response", JSON.stringify(responseIsEvent));
     // console.log(responseIsEvent);
     if (!responseIsEvent["has_event"])
       return { status: "rejected-by-gpt-3", reason: responseIsEvent["rejected_reason"] };
 
+    logger.logBlock("extract prompt", PROMPT_INTRO);
     response = await createChatCompletionWithRetry({
       model: "gpt-4-0613",
       messages: [
@@ -241,6 +242,7 @@ export async function extractFromEmail(
       functions: [EXTRACT_FUNCTION],
       function_call: { name: EXTRACT_FUNCTION.name }
     });
+    logger.logBlock("extract response", JSON.stringify(response));
   } catch (error) {
     return { status: "error-openai-network", error };
   }

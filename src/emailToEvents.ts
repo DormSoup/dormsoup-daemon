@@ -1,5 +1,7 @@
 import { DataSource, Email, EmailSender, Event, PrismaClient } from "@prisma/client";
 import assert from "assert";
+import filenamify from "filenamify";
+import fs from "fs";
 import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
 import { AddressObject, ParsedMail, simpleParser } from "mailparser";
@@ -73,6 +75,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
 
     const processingTasks = new Map<string, Deferred<void>>();
     const mailProcessors: Promise<ProcessEmailResult>[] = [];
+    const logger = new EmailProcessingLogger(auth.user);
+    await logger.setup();
 
     // Have to ensure the property: For emails A & B, if A.receivedAt <= B.receivedAt, then
     // the promise processMail(..., A) must be created NO LATER THAN processMail(..., B).
@@ -83,7 +87,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
           auth.user,
           email.uid,
           emailToRelaxedParsedMail(email),
-          processingTasks
+          processingTasks,
+          logger
         ).then((value) => {
           process.stdout.write((value as string).at(-1)!!);
           return value;
@@ -98,7 +103,9 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     )) {
       mailProcessors.push(
         simpleParser(message.source)
-          .then((parsed) => processMail(prisma, auth.user, message.uid, parsed, processingTasks))
+          .then((parsed) =>
+            processMail(prisma, auth.user, message.uid, parsed, processingTasks, logger)
+          )
           .then((value) => {
             if (value !== "dormspam-but-root-not-in-db") {
               const acryonyms: { [key in ProcessEmailResult]: string } = {
@@ -198,7 +205,8 @@ async function processMail(
   scrapedBy: string,
   uid: number,
   parsed: RelaxedParsedMail,
-  processingTasks: Map<string, Deferred<void>>
+  processingTasks: Map<string, Deferred<void>>,
+  logger: EmailProcessingLogger
 ): Promise<ProcessEmailResult> {
   const receivedAt = parsed.date ?? new Date();
 
@@ -224,12 +232,14 @@ async function processMail(
       !html ||
       subject === undefined
     ) {
+      logger.logMalformed(uid, parsed, "header malformed");
       await ignoreThisEmailForever();
       return "malformed-email";
     }
 
     const emailWithSameMessageId = await prisma.email.findUnique({ where: { messageId } });
     if (emailWithSameMessageId !== null && emailWithSameMessageId.uid !== uid) {
+      logger.logMalformed(uid, parsed, "duplicate message ID");
       await ignoreThisEmailForever();
       return "malformed-email";
     }
@@ -246,6 +256,13 @@ async function processMail(
 
     let inReplyTo = undefined;
     let rootMessageId = messageId;
+    const dormspamLogger = logger.loggerForDormspam(uid, parsed);
+    let metaBlock =
+      `Run date: ${new Date().toISOString()}\n` +
+      `Received at: ${receivedAt.toISOString()}\n` +
+      `Scraped by: ${scrapedBy}\n` +
+      `Sent by: ${senderName}<${senderAddress}>\n`;
+    dormspamLogger.logBlock("meta", metaBlock);
 
     if (parsed.inReplyTo !== undefined) {
       const inReplyToEmail = await prisma.email.findUnique({
@@ -253,11 +270,14 @@ async function processMail(
       });
       if (inReplyToEmail === null) return "dormspam-but-root-not-in-db";
       let root = inReplyToEmail;
+      const thread = [];
       while (root.inReplyToId !== null) {
         const nextRoot = await prisma.email.findUnique({ where: { messageId: root.inReplyToId } });
         if (nextRoot === null) return "dormspam-but-root-not-in-db";
+        thread.push(`${root.inReplyToId} ${nextRoot.subject}`);
         root = nextRoot;
       }
+      dormspamLogger.logBlock("thread", thread.join("\n"));
       rootMessageId = root.messageId;
       inReplyTo = {
         connect: { messageId: parsed.inReplyTo }
@@ -311,7 +331,7 @@ async function processMail(
       await prisma.event.deleteMany({ where: { fromEmailId: rootMessageId } });
     }
 
-    const result = await extractFromEmail(subject, text, receivedAt);
+    const result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
 
     if (result.status === "error-malformed-json") return "dormspam-but-malformed-json";
     if (result.status === "error-openai-network") return "dormspam-but-network-error";
@@ -327,8 +347,12 @@ async function processMail(
     if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);
     outer: for (const event of result.events) {
       const embedding = await createEmbedding(event.title);
+      const knn = getKNearestNeighbors(embedding, 3);
       upsertEmbedding(event.title, embedding, { eventIds: [] });
-      const knn = getKNearestNeighbors(getEmbedding(event.title)!.embeddings, 3);
+      dormspamLogger.logBlock(
+        `knn-${event.title}`,
+        knn.map(([title, distance]) => `${distance} ${title}`).join("\n")
+      );
       const newEventData = {
         date: event.dateTime,
         source: DataSource.DORMSPAM,
@@ -350,16 +374,22 @@ async function processMail(
             console.warn("Event id ", eventId, " is in embedding DB metadata but not in DB");
             continue;
           }
+          let mergeBlock =
+            `New event: ${event.title} ${event.dateTime.toISOString()} ${event.location}\n` +
+            `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${
+              otherEvent.location
+            }\n`;
           const merged = mergeEvents(
             { ...event, date: event.dateTime, fromEmail: { receivedAt } },
             otherEvent
           );
+          mergeBlock += `Merged: ${merged}\n`;
+          dormspamLogger.logBlock(`merge`, mergeBlock);
           if (merged === "latter") {
             console.log("Event ", event, " not inserted because it is merged with ", otherEvent);
             continue outer;
           }
           if (merged === "former") {
-            const embedding = await createEmbedding(event.title);
             upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
             metadata.eventIds = metadata.eventIds.filter((id) => id !== eventId);
             if (metadata.eventIds.length === 0) deleteEmbedding(title);
@@ -388,7 +418,7 @@ async function processMail(
 function mergeEvents(
   event1: { date: Date; location: string; fromEmail: null | { receivedAt: Date } },
   event2: { date: Date; location: string; fromEmail: null | { receivedAt: Date } }
-): "unmergable" | "former" | "latter" {
+): "unmergable-date" | "unmergable-location" | "former" | "latter" {
   const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
   // Get the day since unix epoch
   const sameDate =
@@ -396,12 +426,57 @@ function mergeEvents(
       Math.floor(event1.date.getTime() / 86400000) ===
         Math.floor(event2.date.getTime() / 86400000)) ||
     event1.date.getTime() === event2.date.getTime();
-  if (!sameDate) return "unmergable";
+  if (!sameDate) return "unmergable-date";
   const sameLocation =
     event1.location.toLowerCase() === "unknown" ||
     event2.location.toLowerCase() === "unknown" ||
     event1.location.toLowerCase().includes(event2.location.toLowerCase()) ||
     event2.location.toLowerCase().includes(event1.location.toLowerCase());
-  if (!sameLocation) return "unmergable";
+  if (!sameLocation) return "unmergable-location";
   return event1.fromEmail!.receivedAt <= event2.fromEmail!.receivedAt ? "latter" : "former";
+}
+
+class EmailProcessingLogger {
+  public constructor(private scrapedBy: string) {}
+
+  public async setup() {
+    await fs.promises.mkdir(`logs/${this.scrapedBy}`, { recursive: true });
+    await fs.promises.appendFile(`logs/${this.scrapedBy}/malformed.log`, "");
+  }
+
+  public logMalformed(uid: number, parsed: RelaxedParsedMail, reason: string) {
+    const { messageId, from, html, subject } = parsed;
+    // DO NOT AWAIT
+    fs.promises.appendFile(
+      `logs/${this.scrapedBy}/malformed.log`,
+      `${uid.toString().padStart(5, "0")} ${messageId} ${JSON.stringify(
+        from
+      )} ${html} ${subject} ${reason}\n`
+    );
+  }
+
+  public loggerForDormspam(uid: number, parse: RelaxedParsedMail) {
+    const fileName = `logs/${this.scrapedBy}/${uid.toString().padStart(5, "0")}-${filenamify(
+      parse.subject!!
+    )}.log`;
+    return new SpecificDormspamProcessingLogger(fileName);
+  }
+}
+
+export class SpecificDormspamProcessingLogger {
+  public constructor(private fileName: string) {}
+
+  public logBlock(name: string, value: string) {
+    const maxBannerLength = 100;
+    let banner = name.toUpperCase();
+    let bannerEnd = banner;
+    if (name.length < maxBannerLength) {
+      const rest = maxBannerLength - name.length;
+      const firstHalf = Math.floor(rest / 2);
+      bannerEnd = "<".repeat(firstHalf) + banner + "<".repeat(rest - firstHalf);
+      banner = ">".repeat(firstHalf) + banner + ">".repeat(rest - firstHalf);
+    }
+    // DO NOT AWAIT
+    fs.promises.appendFile(this.fileName, `${banner}\n${value}\n${bannerEnd}\n`);
+  }
 }

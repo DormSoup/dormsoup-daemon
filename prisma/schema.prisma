@@ -12,6 +12,7 @@ datasource db {
 
 enum DataSource {
   DORMSPAM
+  MANUAL_INPUT
 }
 
 model Event {

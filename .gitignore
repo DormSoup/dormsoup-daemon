@@ -6,6 +6,8 @@ testmails
 .token.json
 .vscode
 
+logs
+
 embeddings.json*
 
 sync.sh
