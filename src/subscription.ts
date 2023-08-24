@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import dedent from "dedent";
 import fs from "fs";
 
-import { sendEmail } from "./mailer";
+import { sendEmail } from "./mailer.js";
 
 const PUSH_DATE_FILE = "./push.date";
 
@@ -36,8 +36,8 @@ async function getAllEvents(today: Date) {
     const events = await prisma.event.findMany({
       where: {
         date: {
-          gte: today,
-          lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+          gte: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+          lt: new Date(today.getTime() + 48 * 60 * 60 * 1000)
         }
       },
       select: {
@@ -75,7 +75,7 @@ const PUSH_TEMPLATE = dedent`
   `;
 const PUSH_EVENT_TEMPLATE = dedent`
   <p>
-    <h2 style="display:inline;">{EVENT_TITLE}</h2>
+    <h2 style="display:inline;">{EVENT_TITLE}</h2>&nbsp;
     {EVENT_TIME} @ {EVENT_LOCATION} <br>
     Tags: {EVENT_TAGS}
   </p>
