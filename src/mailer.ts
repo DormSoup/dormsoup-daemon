@@ -18,9 +18,8 @@ export const DORMSOUP_SENDER = "DormSoup <dormsoup@mit.edu>";
 type SendEmailOptions = {
   to: string;
   subject: string;
-  text: string;
-};
+} & ({ text: string } | { html: string });
 
-export async function sendEmail({ to, subject, text }: SendEmailOptions): Promise<void> {
-  await DORMSOUP_SMTP_TRANSPORT.sendMail({ to, from: DORMSOUP_SENDER, subject, text });
+export async function sendEmail(opts: SendEmailOptions): Promise<void> {
+  await DORMSOUP_SMTP_TRANSPORT.sendMail({ ...opts, from: DORMSOUP_SENDER });
 }

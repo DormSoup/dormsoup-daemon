@@ -1,5 +1,6 @@
 import fetchEmailsAndExtractEvents from "./emailToEvents.js";
 import addTagsToEvents from "./eventToTags.js";
+import { pushToSubscribers } from "./subscription.js";
 import { flushEmbeddings, loadEmbeddings } from "./vectordb.js";
 
 export default async function main() {
@@ -10,7 +11,10 @@ export default async function main() {
     console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
     const oldLog = console.log;
     console.log = (...args) => oldLog("  ", ...args);
+    await pushToSubscribers();
+    await flushEmbeddings();
     await fetchEmailsAndExtractEvents(lookbackDays);
+    await flushEmbeddings();
     await addTagsToEvents(lookbackDays);
     await flushEmbeddings();
     console.log = oldLog;
