@@ -41,7 +41,12 @@ export async function authenticate(): Promise<AuthResult> {
     }
   };
   const pca = new PublicClientApplication(clientConfig);
-  const scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All"];
+  const scopes = [
+    "https://outlook.office.com/IMAP.AccessAsUser.All",
+    "https://outlook.office.com/POP.AccessAsUser.All",
+    "https://outlook.office.com/SMTP.Send",
+    // "offline_access"
+  ];
 
   try {
     const accounts = await pca.getAllAccounts();
@@ -93,6 +98,7 @@ export async function authenticate(): Promise<AuthResult> {
   app.get(
     "/",
     asyncHandler(async (req, res) => {
+      console.log(req.query);
       const tokenRequest: AuthorizationCodeRequest = {
         code: req.query.code as string,
         scopes,

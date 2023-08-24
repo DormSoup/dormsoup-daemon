@@ -44,7 +44,7 @@ const PROMPT_INTRO = dedent`
   - The title of the event (up to five words. Use Title Case.)
   - The start time of the event (in HH:mm format)
   - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
-  - The estimated duration of the event (an integer, number of minutes)
+  - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
   - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
   - The organization hosting the event (usually a club, however it is possible for individuals to organize events)
 

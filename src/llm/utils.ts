@@ -29,12 +29,12 @@ type LLMRateLimiter = {
 
 const GPT_3_LIMITER: LLMRateLimiter = {
   rpmLimiter: new RateLimiter({ tokensPerInterval: 3500, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 90000, interval: "minute" })
+  tpmLimiter: new RateLimiter({ tokensPerInterval: 60000, interval: "minute" })
 };
 
 const GPT_4_LIMITER: LLMRateLimiter = {
   rpmLimiter: new RateLimiter({ tokensPerInterval: 200, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 40000, interval: "minute" })
+  tpmLimiter: new RateLimiter({ tokensPerInterval: 30000, interval: "minute" })
 };
 
 const MODEL_LIMITERS: { [modelName: string]: LLMRateLimiter } = {

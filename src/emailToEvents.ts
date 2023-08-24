@@ -11,10 +11,12 @@ import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
 import {
+  acquireLock,
   deleteEmbedding,
   flushEmbeddings,
   getEmbedding,
   getKNearestNeighbors,
+  releaseLock,
   upsertEmbedding
 } from "./vectordb.js";
 
@@ -229,7 +231,7 @@ async function processMail(
       messageId === undefined ||
       from === undefined ||
       from.value[0].address === undefined ||
-      !html ||
+      (html === undefined && parsed.text === undefined) ||
       subject === undefined
     ) {
       logger.logMalformed(uid, parsed, "header malformed");
@@ -248,7 +250,7 @@ async function processMail(
     const senderAddress = sender.address!!;
     const senderName = sender.name ?? senderAddress;
 
-    const text = removeArtifacts(parsed.text ?? convert(html));
+    const text = removeArtifacts(parsed.text ?? (html ? convert(html) : ""));
     if (!isDormspam(text)) {
       await ignoreThisEmailForever();
       return "not-dormspam";
@@ -302,7 +304,7 @@ async function processMail(
           }
         },
         subject,
-        body: html,
+        body: html ? html : parsed.text ?? "",
         receivedAt,
         modelName: CURRENT_MODEL_NAME + "_PROCESSING",
         inReplyTo
@@ -345,66 +347,72 @@ async function processMail(
     }
 
     if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);
-    outer: for (const event of result.events) {
-      const embedding = await createEmbedding(event.title);
-      const knn = getKNearestNeighbors(embedding, 3);
-      upsertEmbedding(event.title, embedding, { eventIds: [] });
-      dormspamLogger.logBlock(
-        `knn-${event.title}`,
-        knn.map(([title, distance]) => `${distance} ${title}`).join("\n")
-      );
-      const newEventData = {
-        date: event.dateTime,
-        source: DataSource.DORMSPAM,
-        title: event.title,
-        location: event.location,
-        organizer: event.organizer,
-        duration: event.duration,
-        fromEmail: { connect: { messageId: rootMessageId } },
-        text
-      };
-      for (const [title, distance] of knn) {
-        const { metadata } = getEmbedding(title)!;
-        for (const eventId of metadata.eventIds) {
-          const otherEvent = await prisma.event.findUnique({
-            where: { id: eventId },
-            include: { fromEmail: { select: { receivedAt: true } } }
-          });
-          if (otherEvent === null) {
-            console.warn("Event id ", eventId, " is in embedding DB metadata but not in DB");
-            continue;
-          }
-          let mergeBlock =
-            `New event: ${event.title} ${event.dateTime.toISOString()} ${event.location}\n` +
-            `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${
-              otherEvent.location
-            }\n`;
-          const merged = mergeEvents(
-            { ...event, date: event.dateTime, fromEmail: { receivedAt } },
-            otherEvent
-          );
-          mergeBlock += `Merged: ${merged}\n`;
-          dormspamLogger.logBlock(`merge`, mergeBlock);
-          if (merged === "latter") {
-            console.log("Event ", event, " not inserted because it is merged with ", otherEvent);
-            continue outer;
-          }
-          if (merged === "former") {
-            upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
-            metadata.eventIds = metadata.eventIds.filter((id) => id !== eventId);
-            if (metadata.eventIds.length === 0) deleteEmbedding(title);
-            console.log("Event ", event, " updates previous event ", otherEvent);
-            await prisma.event.update({
+
+    await acquireLock();
+    try {
+      outer: for (const event of result.events) {
+        const embedding = await createEmbedding(event.title);
+        const knn = getKNearestNeighbors(embedding, 3);
+        upsertEmbedding(event.title, embedding, { eventIds: [] });
+        dormspamLogger.logBlock(
+          `knn-${event.title}`,
+          knn.map(([title, distance]) => `${distance} ${title}`).join("\n")
+        );
+        const newEventData = {
+          date: event.dateTime,
+          source: DataSource.DORMSPAM,
+          title: event.title,
+          location: event.location,
+          organizer: event.organizer,
+          duration: event.duration,
+          fromEmail: { connect: { messageId: rootMessageId } },
+          text
+        };
+        for (const [title, distance] of knn) {
+          const { metadata } = getEmbedding(title)!;
+          for (const eventId of metadata.eventIds) {
+            const otherEvent = await prisma.event.findUnique({
               where: { id: eventId },
-              data: newEventData
+              include: { fromEmail: { select: { receivedAt: true } } }
             });
-            continue outer;
+            if (otherEvent === null) {
+              console.warn("Event id ", eventId, " is in embedding DB metadata but not in DB");
+              continue;
+            }
+            let mergeBlock =
+              `New event: ${event.title} ${event.dateTime.toISOString()} ${event.location}\n` +
+              `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${
+                otherEvent.location
+              }\n`;
+            const merged = mergeEvents(
+              { ...event, date: event.dateTime, fromEmail: { receivedAt } },
+              otherEvent
+            );
+            mergeBlock += `Merged: ${merged}\n`;
+            dormspamLogger.logBlock(`merge`, mergeBlock);
+            if (merged === "latter") {
+              console.log("Event ", event, " not inserted because it is merged with ", otherEvent);
+              continue outer;
+            }
+            if (merged === "former") {
+              upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
+              metadata.eventIds = metadata.eventIds.filter((id) => id !== eventId);
+              if (metadata.eventIds.length === 0) deleteEmbedding(title);
+              console.log("Event ", event, " updates previous event ", otherEvent);
+              await prisma.event.update({
+                where: { id: eventId },
+                data: newEventData
+              });
+              continue outer;
+            }
           }
         }
+        const newEvent = await prisma.event.create({ data: newEventData });
+        upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
+        console.log("Event ", event, " inserted ");
       }
-      const newEvent = await prisma.event.create({ data: newEventData });
-      upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
-      console.log("Event ", event, " inserted ");
+    } finally {
+      releaseLock();
     }
 
     markProcessedByCurrentModel();

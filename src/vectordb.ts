@@ -1,5 +1,7 @@
 import * as fs from "fs/promises";
 
+import { Deferred } from "./deferred.js";
+
 type EmbeddingMetadata = {
   eventIds: number[];
 };
@@ -63,4 +65,25 @@ export function getKNearestNeighbors(target: number[], k: number = 1) {
   }
   distances.sort((a, b) => a[1] - b[1]);
   return distances.slice(0, k);
+}
+
+const waiters: (Deferred<void> | undefined)[] = [];
+
+export async function acquireLock() {
+  if (waiters.length == 0) {
+    waiters.push(undefined);
+    return;
+  }
+  // need to push Deferred if there are other waiters waiting in the line / no waiters but someone is using it
+  const deferred = new Deferred<void>();
+  waiters.push(deferred);
+  await deferred;
+}
+
+export function releaseLock() {
+  // waiters.length == 0: only I am using it and nobody else is waiting
+  if (waiters[0] === undefined) waiters.shift();
+  if (waiters.length == 0) return;
+  const deferred = waiters.shift()!;
+  deferred.resolve();
 }
