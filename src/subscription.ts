@@ -6,9 +6,17 @@ import { sendEmail } from "./mailer.js";
 
 const PUSH_DATE_FILE = "./push.date";
 
+function roundToDate(date: Date | undefined) {
+  if (!date) return undefined;
+  const newDate = new Date(date);
+  newDate.setHours(0, 0, 0, 0);
+  return newDate;
+}
+
 export async function pushToSubscribers() {
   const today = new Date();
-  if (today.getTime() === (await getMostRecentPushDate())?.getTime()) return;
+  if (roundToDate(today)?.getTime() === roundToDate(await getMostRecentPushDate())?.getTime())
+    return;
   await fs.promises.writeFile(PUSH_DATE_FILE, today.toISOString());
 
   console.log("Pushing to subscribers");
