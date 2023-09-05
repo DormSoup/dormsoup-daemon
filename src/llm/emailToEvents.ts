@@ -41,7 +41,7 @@ const PROMPT_INTRO = dedent`
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
 
   If the purpose of the email is to advertise for events, identify the following details of events:
-  - The title of the event (up to five words. Use Title Case.)
+  - The title of the event (Use Title Case)
   - The start time of the event (in HH:mm format)
   - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
   - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
