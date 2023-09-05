@@ -71,16 +71,16 @@ async function getAllEvents(today: Date) {
 }
 
 const PUSH_TEMPLATE = dedent`
-  <body>
-    <p>
-      Events happening tomorrow:
-    </p>
-    {EVENTS}
-    <p>
-      If you have any questions, you can contact <a href="mailto:dormsoup@mit.edu">dormsoup@mit.edu</a>. You can also <a href="javascript:void(0)" onclick="alert('you dont');">unsubscribe</a> here.
-    </p>
-  </body>
-  `;
+<body>
+  <p>
+    Events happening tomorrow:
+  </p>
+  {EVENTS}
+  <p>
+    If you have any questions, you can contact <a href="mailto:dormsoup@mit.edu">dormsoup@mit.edu</a>. You can also <a href="https://dormsoup.mit.edu">visit our website</a> to for event details or to unsubscribe.
+  </p>
+</body>
+`;
 const PUSH_EVENT_TEMPLATE = dedent`
   <p>
     <h2 style="display:inline;">{EVENT_TITLE}</h2>&nbsp;
@@ -90,7 +90,7 @@ const PUSH_EVENT_TEMPLATE = dedent`
   `;
 
 async function composeEmail(today: Date, events: Awaited<ReturnType<typeof getAllEvents>>) {
-  const subject = "[DormSoup] Upcoming events: " + events.map(({ title }) => title).join(", ");
+  const subject = "[Happening Tomorrow] " + events.map(({ title }) => title).join(", ");
   const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
   const paragraphs = events.map((event) => {
     return PUSH_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
