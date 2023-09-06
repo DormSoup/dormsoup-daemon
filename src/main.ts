@@ -11,11 +11,11 @@ export default async function main() {
     console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
     const oldLog = console.log;
     console.log = (...args) => oldLog("  ", ...args);
-    await pushToSubscribers();
-    await flushEmbeddings();
     await fetchEmailsAndExtractEvents(lookbackDays);
     await flushEmbeddings();
     await addTagsToEvents(lookbackDays);
+    await flushEmbeddings();
+    await pushToSubscribers();
     await flushEmbeddings();
     console.log = oldLog;
     await new Promise((resolve) => setTimeout(resolve, 1000 * 60));

@@ -27,14 +27,14 @@ export async function pushToSubscribers() {
   }
   const content = await composeEmail(today, events);
   const prisma = new PrismaClient();
-  // const users = (await prisma.emailSender.findMany({ where: { subscribed: true } })).map(({email}) => email);
-  const users = ["macy404@mit.edu", "andiliu@mit.edu"];
-  for (const user of users) {
-    await sendEmail({
-      ...content,
-      to: user
-    });
-  }
+  const users = (await prisma.emailSender.findMany({ where: { subscribed: true } })).map(({email}) => email);
+  console.log(users);
+  // for (const user of users) {
+  //   await sendEmail({
+  //     ...content,
+  //     to: user
+  //   });
+  // }
   console.log("Pushed");
 }
 
