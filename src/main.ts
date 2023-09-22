@@ -7,7 +7,7 @@ export default async function main() {
   await loadEmbeddings();
 
   while (true) {
-    const lookbackDays = 150;
+    const lookbackDays = 60;
     console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
     const oldLog = console.log;
     console.log = (...args) => oldLog("  ", ...args);

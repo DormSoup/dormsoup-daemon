@@ -4,7 +4,7 @@ import { ChatCompletionFunctions } from "openai";
 import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
 import { createChatCompletionWithRetry, formatDateInET, removeArtifacts } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "GPT-3.75-0715";
+export const CURRENT_MODEL_NAME = "GPT-3.75-0922";
 
 export interface Event {
   title: string;

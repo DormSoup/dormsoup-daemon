@@ -4,7 +4,7 @@ import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "TAG-0722";
+export const CURRENT_MODEL_NAME = "TAG-0922";
 
 // PLAYsentation (Class Presentation), Logar(Concert), Alien Conspiracy
 
