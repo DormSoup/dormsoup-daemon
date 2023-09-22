@@ -41,24 +41,24 @@ const PROMPT_INTRO = dedent`
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
 
   If the purpose of the email is to advertise for events, identify the following details of events:
-  - The title of the event (Use Title Case)
   - The start time of the event (in HH:mm format)
-  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent, use the time above)
+  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received)
   - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
   - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
-  - The organization hosting the event (usually a club, however it is possible for individuals to organize events)
+  - The organization hosting the event (Be Short. Usually a club, however it is possible for individuals to organize events)
+  - The title of the event (Be Concise. Use Title Case. If organizer has a short name and provides context, include [ORGANIZER_NAME] before the title)
 
   The output should resemble the following:
   ---------------- Sample Response (for formatting reference) --------------
   {
     "events": [
       {
-        "title": "UN x MIT: Immersive Storytelling",
         "time_in_the_day": "18:00",
         "date_time": "2023-04-03T18:00:00",
         "duration": 90,
         "location": "3-333",
         "organizer": "MIT UN"
+        "title": "[MIT UN] Immersive Storytelling",
       }
     ]
   }

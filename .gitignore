@@ -12,3 +12,5 @@ embeddings.json*
 
 sync.sh
 .DS_Store
+
+push.date
