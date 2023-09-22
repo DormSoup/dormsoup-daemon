@@ -78,7 +78,7 @@ const ACCEPTABLE_CONTENT_TAGS = [
   "Math",
   "Biology",
   "Finance",
-  "Entrepreneurship",
+  "Career",
   "East Asian",
   "Religion",
   "Queer"
@@ -95,7 +95,7 @@ const CONTENT_TAG_PROMPT =
   - Math
   - Biology
   - Finance | (including Quant)
-  - Entrepreneurship | (related to startups)
+  - Career | (related to jobs and industries)
   - East Asian
   - Religion
   - Queer | (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
