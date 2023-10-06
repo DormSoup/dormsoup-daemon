@@ -46,19 +46,16 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
       scrapedBy: auth.user,
       uid: { gte: minUid }
     };
-    console.trace("connected and authenticated");
     // ignoredUids: emails that cannot be dormspams because they don't contain the keywords.
     const ignoredUids = await prisma.ignoredEmail.findMany({
       select: { uid: true },
       where: byUserAndRecent
     });
-    console.trace("ignoreUids: ", ignoredUids);
     // processedUids: emails that have been processed by the current model.
     const processedUids = await prisma.email.findMany({
       select: { uid: true },
       where: { ...byUserAndRecent, modelName: { equals: CURRENT_MODEL_NAME } }
     });
-    console.trace("processedUids: ", processedUids);
 
     // seenUids: no need to look at these emails again. saves bandwidth and tokens.
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);

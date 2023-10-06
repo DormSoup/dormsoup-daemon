@@ -43,8 +43,8 @@ async function getAllEvents(today: Date) {
     const events = await prisma.event.findMany({
       where: {
         date: {
-          gte: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-          lt: new Date(today.getTime() + 48 * 60 * 60 * 1000)
+          gte: new Date(today.getTime() + 0 * 60 * 60 * 1000),
+          lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
         }
       },
       select: {

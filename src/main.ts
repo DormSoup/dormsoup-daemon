@@ -7,17 +7,16 @@ export default async function main() {
   await loadEmbeddings();
 
   while (true) {
-    const lookbackDays = 60;
+    const lookbackDays = 30;
     console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
-    const oldLog = console.log;
-    console.log = (...args) => oldLog("  ", ...args);
+    console.group();
     await fetchEmailsAndExtractEvents(lookbackDays);
     await flushEmbeddings();
     await addTagsToEvents(lookbackDays);
     await flushEmbeddings();
     await pushToSubscribers();
     await flushEmbeddings();
-    console.log = oldLog;
+    console.groupEnd();
     await new Promise((resolve) => setTimeout(resolve, 1000 * 60));
   }
 }
