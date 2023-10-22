@@ -40,7 +40,7 @@ export async function pushToSubscribers() {
   const users = (await prisma.emailSender.findMany({ where: { subscribed: true } })).map(
     ({ email }) => email
   );
-  for (const user of ["macy404@mit.edu", "andiliu@mit.edu"]) {
+  for (const user of users) {
     await sendEmail({
       ...content,
       to: user

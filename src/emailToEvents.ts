@@ -1,5 +1,6 @@
 import { DataSource, Email, EmailSender, Event, PrismaClient } from "@prisma/client";
 import assert from "assert";
+import dedent from "dedent";
 import filenamify from "filenamify";
 import fs from "fs";
 import { convert } from "html-to-text";
@@ -10,6 +11,7 @@ import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
+import { sendEmail } from "./mailer.js";
 import {
   acquireLock,
   deleteEmbedding,
@@ -134,6 +136,7 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
         else resultsByType.set(result.value, 1);
       }
     }
+    console.log("");
     for (const [key, value] of resultsByType) console.log(`${key}: ${value}`);
   } finally {
     lock.release();
@@ -166,7 +169,7 @@ const isDormspamRegex = new RegExp(
 );
 
 function isDormspam(text: string): boolean {
-  return isDormspamRegex.test(text);
+  return isDormspamRegex.test(text) && !text.includes("dormsoup-ignore");
 }
 
 function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): RelaxedParsedMail {
@@ -318,6 +321,8 @@ async function processMail(
       include: { fromEmail: { select: { modelName: true } } }
     });
 
+    let shouldSendReply = false;
+
     if (existing !== null) {
       // The existing email has already been processed with the current model, do nothing.
       // if (receivedAt < existing.latestUpdateTime) return;
@@ -328,6 +333,9 @@ async function processMail(
       // The existing email has been processed by an older model / prompt. Delete all associated
       // events.
       await prisma.event.deleteMany({ where: { fromEmailId: rootMessageId } });
+    } else {
+      // There is no existing parses of this email.
+      shouldSendReply = true;
     }
 
     const result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
@@ -346,6 +354,7 @@ async function processMail(
     if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);
 
     await acquireLock();
+    let eventsToSend = [];
     try {
       outer: for (const event of result.events) {
         const embedding = await createEmbedding(event.title);
@@ -406,6 +415,7 @@ async function processMail(
         }
         const newEvent = await prisma.event.create({ data: newEventData });
         upsertEmbedding(event.title, embedding, { eventIds: [newEvent.id] });
+        eventsToSend.push(newEvent);
         console.log("Event ", event, " inserted ");
       }
     } finally {
@@ -413,11 +423,72 @@ async function processMail(
     }
 
     markProcessedByCurrentModel();
+    if (shouldSendReply && eventsToSend.length > 0) {
+      await sendReply(senderAddress, messageId, eventsToSend);
+    }
 
     return "dormspam-with-event";
   } finally {
     deferred.resolve();
   }
+}
+
+const REPLY_TEMPLATE = dedent`
+<body>
+  <p>
+    Hi Dormspammer!
+  </p>
+  <p>
+    Our large language model just parsed your email and identified the following event(s):
+  </p>
+  {EVENTS}
+  <p>
+    You can find your event(s) at <a
+    href="https://dormsoup.mit.edu">dormsoup.mit.edu</a> and edit any of the
+    above details.
+  </p>
+  <p>
+    If you have any questions, feel free to contact <a
+    href="mailto:dormsoup@mit.edu">dormsoup@mit.edu</a> or visit <a
+    href="https://dormsoup.mit.edu/about">our about page</a> for our data
+    privacy policy. If you would like our model to NOT parse your emails,
+    include "dormsoup-ignore" anywhere in your email.
+  </p>
+  <p>
+    DormSoup Team
+  </p>
+</body>
+`;
+const REPLY_EVENT_TEMPLATE = dedent`
+  <p>
+    Title: <b>{EVENT_TITLE}</b><br>
+    Date / Time: {EVENT_TIME}<br>
+    Location: {EVENT_LOCATION}
+  </p>
+  `;
+
+async function sendReply(senderAddress: string, messageId: string, events: Event[]) {
+  console.log("Sending reply to ", senderAddress);
+  const subject = "[DormSoup] Your event is on DormSoup!";
+  if (false && senderAddress !== "andiliu@mit.edu") {
+    return;
+  }
+  const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
+  const paragraphs = events.map((event) => {
+    return REPLY_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
+      .replace(
+        "{EVENT_TIME}",
+        isAllDay(event.date) ? event.date.toLocaleDateString() : event.date.toLocaleString()
+      )
+      .replace("{EVENT_LOCATION}", event.location);
+  });
+  const html = REPLY_TEMPLATE.replace("{EVENTS}", paragraphs.join("\n"));
+  await sendEmail({
+    to: senderAddress,
+    subject: subject,
+    inReplyTo: messageId,
+    html
+  });
 }
 
 function mergeEvents(

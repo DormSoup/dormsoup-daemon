@@ -18,6 +18,7 @@ export const DORMSOUP_SENDER = "DormSoup <dormsoup@mit.edu>";
 type SendEmailOptions = {
   to: string;
   subject: string;
+  inReplyTo?: string;
 } & ({ text: string } | { html: string });
 
 export async function sendEmail(opts: SendEmailOptions): Promise<void> {

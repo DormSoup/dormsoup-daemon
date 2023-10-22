@@ -16,13 +16,23 @@ type EmbeddingDB = {
 let embeddingDB: EmbeddingDB = {};
 
 const DB_PATH = "./embeddings.json";
+const DB_PATH_BACKUP = "./embeddings.json.backup";
 
-export async function loadEmbeddings() {
-  const data = await fs.readFile(DB_PATH, "utf-8");
-  embeddingDB = JSON.parse(data);
+export async function loadEmbeddings(tryLoadFromBackup: boolean = true) {
+  try {
+    const data = await fs.readFile(DB_PATH, "utf-8");
+    embeddingDB = JSON.parse(data);
+  } catch (err) {
+    if (!tryLoadFromBackup) throw err;
+    // Might be data corruption, restore from backup
+    await fs.copyFile(DB_PATH_BACKUP, DB_PATH);
+    await loadEmbeddings(false);
+  }
 }
 
 export async function flushEmbeddings() {
+  // Copy current file to backup
+  await fs.copyFile(DB_PATH, DB_PATH_BACKUP);
   await fs.writeFile(DB_PATH, JSON.stringify(embeddingDB));
 }
 
