@@ -21,8 +21,11 @@ import {
   releaseLock,
   upsertEmbedding
 } from "./vectordb.js";
+import * as crypto from "crypto";
+import { addTagsToEvent } from "./llm/eventToTags.js";
 
-export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
+// Deprecated
+export async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
   const auth = await authenticate();
   const client = new ImapFlow({
     host: "outlook.office365.com",
@@ -33,6 +36,7 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
   });
 
   const prisma = new PrismaClient();
+
   await client.connect();
 
   let lock = await client.getMailboxLock("INBOX");
@@ -48,6 +52,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
       scrapedBy: auth.user,
       uid: { gte: minUid }
     };
+
+    // ---------------- CHECKING IF THE EMAIL HAS BEEN PROCESSED OR IGNORED BEFORE ----------------
     // ignoredUids: emails that cannot be dormspams because they don't contain the keywords.
     const ignoredUids = await prisma.ignoredEmail.findMany({
       select: { uid: true },
@@ -62,6 +68,9 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     // seenUids: no need to look at these emails again. saves bandwidth and tokens.
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
     // const seenUids = processedUids.map((email) => email.uid);
+
+    // Here are the emails that we need to fetch. 
+    // I.e., the emails that have not been ignored or processed.
     const uids = allUids.filter((uid) => !seenUids.includes(uid));
     console.log(`Received ${uids.length} unseen mails in the past ${lookbackDays} days.`);
     if (uids.length === 0) return;
@@ -86,7 +95,7 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
         processMail(
           prisma,
           auth.user,
-          email.uid,
+          email.uid, 
           emailToRelaxedParsedMail(email),
           processingTasks,
           logger
@@ -143,6 +152,104 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     await prisma.$disconnect();
     await client.logout();
   }
+}
+
+function fnv1aHash32(str: string): number {
+  let hash = 0x811c9dc5; // 32-bit FNV-1a initial hash value
+  for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = (hash * 0x01000193) >>> 0; // Multiply by the FNV prime and ensure 32-bit overflow
+  }
+  return hash;
+}
+
+const generateUID = (email: ParsedMail): number => {
+  // Getting rid of the "<" and ">" characters in the message ID.
+  const messageId = email.messageId?.replace("<", "").replace(">", "") ?? "";
+  if (messageId === ""){
+    throw new Error("Invalid email message ID");
+  }
+  const uid = fnv1aHash32(messageId);
+  return uid;
+}
+
+export default async function processNewEmail(email: ParsedMail) {
+  const prisma = new PrismaClient();
+  try{
+    const uid = generateUID(email);
+    const processingTasks = new Map<string, Deferred<void>>();
+    const logger = new EmailProcessingLogger("sipb-mail-scripts");
+    await logger.setup();
+    const result: ProcessEmailResult = await processMail(prisma, 
+      "sipb-mail-scripts", 
+      uid, 
+      email, 
+      processingTasks, 
+      logger)
+
+    .then((value) => {
+      if (value !== "dormspam-but-root-not-in-db") {
+        const acryonyms: { [key in ProcessEmailResult]: string } = {
+          "malformed-email": "M",
+          "not-dormspam": "D",
+          "dormspam-but-root-not-in-db": "R",
+          "dormspam-but-not-event-by-gpt-3": "3",
+          "dormspam-but-not-event-by-gpt-4": "4",
+          "dormspam-processed-with-same-prompt": "P",
+          "dormspam-but-network-error": "N",
+          "dormspam-but-malformed-json": "J",
+          "dormspam-with-event": "E"
+        };
+        process.stdout.write(acryonyms[value]);
+      }
+      return value;
+    })
+
+    console.log(`New email was of type: ${result}`)
+    if (result === "dormspam-with-event") {
+      console.log("Email was successfully processed and event(s) were extracted. Adding tags..."); 
+      const event = await prisma.event.findFirst({
+        where: { 
+          fromEmailId: email.messageId
+        }
+      });
+      if (event === null) {
+        console.error("Event from email was not found in the database. Exiting...");
+        return;
+      }
+      const tags = await addTagsToEvent(event);
+      await updateEventTags(prisma, event, tags);
+    }
+  }
+  finally {
+    await prisma.$disconnect();
+  }
+}
+
+const updateEventTags =  async (prisma: PrismaClient, event: Event, tags: Array<string>) => {
+  console.log(`Event "${event.title}" has tags: ${tags}`);
+  for (const tag of tags) {
+    await prisma.event.update({
+      where: { id: event.id },
+      data: {
+        tags: {
+          connectOrCreate: {
+            where: { name: tag },
+            create: {
+              name: tag,
+              color: "",
+              icon: "",
+              category: ""
+            }
+          }
+        }
+      }
+    });
+  }
+  await prisma.event.update({
+    where: { id: event.id },
+    data: { tagsProcessedBy: CURRENT_MODEL_NAME }
+  });
 }
 
 type RelaxedParsedMail = Omit<ParsedMail, "attachments" | "headers" | "headerLines" | "from"> & {
