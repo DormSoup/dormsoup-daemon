@@ -4,7 +4,7 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "start": "ts-node src/main.ts",
+    "start": "tsx src/server.ts",
     "relay": "ts-node src/scripts/localRelay.ts",
     "llm": "ts-node src/llm.ts",
     "testEmailToEventsPrompt": "ts-node src/scripts/testEmailToEventsPrompt.ts",
@@ -45,16 +45,17 @@
     "eslint-plugin-promise": "^6.1.1",
     "prettier": "^2.8.7",
     "prisma": "^4.14.0",
-    "ts-node": "^10.9.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.0.4"
   },
   "dependencies": {
     "@azure/msal-node": "^1.17.1",
     "@azure/msal-node-extensions": "^1.0.0-alpha.34",
     "@prisma/client": "^4.14.0",
+    "crypto": "^1.0.1",
     "dedent": "^0.7.0",
     "dotenv": "^16.0.3",
-    "express": "^4.18.2",
+    "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "filenamify": "^6.0.0",
     "html-to-text": "^9.0.5",
@@ -69,6 +70,7 @@
     "open": "^9.1.0",
     "openai": "^3.2.1",
     "puppeteer": "^21.3.8",
-    "sanitize-filename": "^1.6.3"
+    "sanitize-filename": "^1.6.3",
+    "tsx": "^4.17.0"
   }
 }

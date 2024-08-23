@@ -25,7 +25,7 @@ import * as crypto from "crypto";
 import { addTagsToEvent } from "./llm/eventToTags.js";
 
 // Deprecated
-export async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
+export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
   const auth = await authenticate();
   const client = new ImapFlow({
     host: "outlook.office365.com",
@@ -95,7 +95,7 @@ export async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
         processMail(
           prisma,
           auth.user,
-          email.uid, 
+          email.uid,
           emailToRelaxedParsedMail(email),
           processingTasks,
           logger
@@ -157,8 +157,11 @@ export async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
 function fnv1aHash32(str: string): number {
   let hash = 0x811c9dc5; // 32-bit FNV-1a initial hash value
   for (let i = 0; i < str.length; i++) {
-      hash ^= str.charCodeAt(i);
-      hash = (hash * 0x01000193) >>> 0; // Multiply by the FNV prime and ensure 32-bit overflow
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0; // Multiply by the FNV prime and ensure 32-bit overflow
+  }
+  if (hash > 0x7FFFFFFF) {
+    hash -= 0x100000000; // Wrap around using two's complement
   }
   return hash;
 }
@@ -166,50 +169,62 @@ function fnv1aHash32(str: string): number {
 const generateUID = (email: ParsedMail): number => {
   // Getting rid of the "<" and ">" characters in the message ID.
   const messageId = email.messageId?.replace("<", "").replace(">", "") ?? "";
-  if (messageId === ""){
+  if (messageId === "") {
     throw new Error("Invalid email message ID");
   }
   const uid = fnv1aHash32(messageId);
   return uid;
 }
 
-export default async function processNewEmail(email: ParsedMail) {
+export async function processNewEmail(email: ParsedMail) {
+  /**
+   * Given an email parsed by the mailparser library's simpleParser function,
+   * adds the email to the database. If the email is recognized as an event, an event will be added
+   * to the DB and tags will be added.
+   * @param {ParsedMail} email The parsed email.
+   */
   const prisma = new PrismaClient();
-  try{
+  try {
     const uid = generateUID(email);
+
+    // Necessary to call existing version of processMail function
     const processingTasks = new Map<string, Deferred<void>>();
     const logger = new EmailProcessingLogger("sipb-mail-scripts");
     await logger.setup();
-    const result: ProcessEmailResult = await processMail(prisma, 
-      "sipb-mail-scripts", 
-      uid, 
-      email, 
-      processingTasks, 
+
+
+    const result: ProcessEmailResult = await processMail(prisma,
+      "sipb-mail-scripts",
+      uid,
+      email,
+      processingTasks,
       logger)
 
-    .then((value) => {
-      if (value !== "dormspam-but-root-not-in-db") {
-        const acryonyms: { [key in ProcessEmailResult]: string } = {
-          "malformed-email": "M",
-          "not-dormspam": "D",
-          "dormspam-but-root-not-in-db": "R",
-          "dormspam-but-not-event-by-gpt-3": "3",
-          "dormspam-but-not-event-by-gpt-4": "4",
-          "dormspam-processed-with-same-prompt": "P",
-          "dormspam-but-network-error": "N",
-          "dormspam-but-malformed-json": "J",
-          "dormspam-with-event": "E"
-        };
-        process.stdout.write(acryonyms[value]);
-      }
-      return value;
-    })
+      .then((value) => {
+        if (value !== "dormspam-but-root-not-in-db") {
+          const acryonyms: { [key in ProcessEmailResult]: string } = {
+            "malformed-email": "M",
+            "not-dormspam": "D",
+            "dormspam-but-root-not-in-db": "R",
+            "dormspam-but-not-event-by-gpt-3": "3",
+            "dormspam-but-not-event-by-gpt-4": "4",
+            "dormspam-processed-with-same-prompt": "P",
+            "dormspam-but-network-error": "N",
+            "dormspam-but-malformed-json": "J",
+            "dormspam-with-event": "E"
+          };
+          process.stdout.write(acryonyms[value]);
+        }
+        return value;
+      })
 
-    console.log(`New email was of type: ${result}`)
+    console.log(`\n New email was of type: ${result}`)
     if (result === "dormspam-with-event") {
-      console.log("Email was successfully processed and event(s) were extracted. Adding tags..."); 
+      console.log("Email was successfully processed and event(s) were extracted. Adding tags...");
+
+      // Fetching the event that should've been created if event(s) were extracted to add tags
       const event = await prisma.event.findFirst({
-        where: { 
+        where: {
           fromEmailId: email.messageId
         }
       });
@@ -226,7 +241,7 @@ export default async function processNewEmail(email: ParsedMail) {
   }
 }
 
-const updateEventTags =  async (prisma: PrismaClient, event: Event, tags: Array<string>) => {
+const updateEventTags = async (prisma: PrismaClient, event: Event, tags: Array<string>) => {
   console.log(`Event "${event.title}" has tags: ${tags}`);
   for (const tag of tags) {
     await prisma.event.update({
@@ -494,8 +509,7 @@ async function processMail(
             }
             let mergeBlock =
               `New event: ${event.title} ${event.dateTime.toISOString()} ${event.location}\n` +
-              `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${
-                otherEvent.location
+              `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${otherEvent.location
               }\n`;
             const merged = mergeEvents(
               { ...event, date: event.dateTime, fromEmail: { receivedAt } },
@@ -607,7 +621,7 @@ function mergeEvents(
   const sameDate =
     ((isAllDay(event1.date) || isAllDay(event2.date)) &&
       Math.floor(event1.date.getTime() / 86400000) ===
-        Math.floor(event2.date.getTime() / 86400000)) ||
+      Math.floor(event2.date.getTime() / 86400000)) ||
     event1.date.getTime() === event2.date.getTime();
   if (!sameDate) return "unmergable-date";
   const sameLocation =
@@ -620,7 +634,7 @@ function mergeEvents(
 }
 
 class EmailProcessingLogger {
-  public constructor(private scrapedBy: string) {}
+  public constructor(private scrapedBy: string) { }
 
   public async setup() {
     await fs.promises.mkdir(`logs/${this.scrapedBy}`, { recursive: true });
@@ -647,7 +661,7 @@ class EmailProcessingLogger {
 }
 
 export class SpecificDormspamProcessingLogger {
-  public constructor(private fileName: string) {}
+  public constructor(private fileName: string) { }
 
   public logBlock(name: string, value: string) {
     const maxBannerLength = 100;
