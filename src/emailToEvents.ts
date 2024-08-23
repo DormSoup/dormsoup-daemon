@@ -176,13 +176,13 @@ const generateUID = (email: ParsedMail): number => {
   return uid;
 }
 
+/**
+ * Given an email parsed by the mailparser library's simpleParser function,
+ * adds the email to the database. If the email is recognized as an event, an event will be added
+ * to the DB and tags will be added.
+ * @param {ParsedMail} email The parsed email.
+ */
 export async function processNewEmail(email: ParsedMail) {
-  /**
-   * Given an email parsed by the mailparser library's simpleParser function,
-   * adds the email to the database. If the email is recognized as an event, an event will be added
-   * to the DB and tags will be added.
-   * @param {ParsedMail} email The parsed email.
-   */
   const prisma = new PrismaClient();
   try {
     const uid = generateUID(email);
