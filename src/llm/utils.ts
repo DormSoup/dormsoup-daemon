@@ -6,6 +6,9 @@ import { Configuration, CreateChatCompletionRequest, OpenAIApi } from "openai";
 
 dotenv.config();
 
+export const CHEAP_MODEL = "gpt-4o-mini-2024-07-18";
+export const MODEL = "gpt-4o-2024-08-06";
+
 export interface Event {
   title: string;
   dateTime: Date;
@@ -40,7 +43,9 @@ const GPT_4_LIMITER: LLMRateLimiter = {
 const MODEL_LIMITERS: { [modelName: string]: LLMRateLimiter } = {
   "gpt-3.5-turbo-0613": GPT_3_LIMITER,
   "gpt-3.5-turbo-16k-0613": GPT_3_LIMITER,
-  "gpt-4-0613": GPT_4_LIMITER
+  "gpt-4-0613": GPT_4_LIMITER,
+  CHEAP_MODEL: GPT_3_LIMITER,
+  MODEL: GPT_4_LIMITER
 };
 
 export function estimateTokens(text: string): number {

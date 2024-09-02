@@ -5,13 +5,13 @@
   "main": "main.ts",
   "scripts": {
     "start": "tsx src/server.ts",
-    "relay": "ts-node src/scripts/localRelay.ts",
-    "llm": "ts-node src/llm.ts",
-    "testEmailToEventsPrompt": "ts-node src/scripts/testEmailToEventsPrompt.ts",
-    "testEventToTagsPrompt": "ts-node src/scripts/testEventToTagsPrompt.ts",
-    "deleteAllEvents": "ts-node src/scripts/deleteAllEvents.ts",
-    "deleteAllEmails": "ts-node src/scripts/deleteAllEmails.ts",
-    "oneOffTask": "ts-node src/scripts/oneOffTask.ts",
+    "relay": "tsx src/scripts/localRelay.ts",
+    "llm": "tsx src/llm.ts",
+    "testEmailToEventsPrompt": "tsx src/scripts/testEmailToEventsPrompt.ts",
+    "testEventToTagsPrompt": "tsx src/scripts/testEventToTagsPrompt.ts",
+    "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
+    "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
+    "oneOffTask": "tsx src/scripts/oneOffTask.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "type": "module",
@@ -45,7 +45,6 @@
     "eslint-plugin-promise": "^6.1.1",
     "prettier": "^2.8.7",
     "prisma": "^4.14.0",
-    "ts-node": "^10.9.2",
     "typescript": "^5.0.4"
   },
   "dependencies": {

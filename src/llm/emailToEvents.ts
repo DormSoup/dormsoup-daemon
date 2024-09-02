@@ -2,9 +2,15 @@ import dedent from "dedent";
 import { ChatCompletionFunctions } from "openai";
 
 import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
-import { createChatCompletionWithRetry, formatDateInET, removeArtifacts } from "./utils.js";
+import {
+  CHEAP_MODEL,
+  MODEL,
+  createChatCompletionWithRetry,
+  formatDateInET,
+  removeArtifacts
+} from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "GPT-3.75-0922";
+export const CURRENT_MODEL_NAME = "GPT-4o-0901";
 
 export interface Event {
   title: string;
@@ -42,7 +48,7 @@ const PROMPT_INTRO = dedent`
 
   If the purpose of the email is to advertise for events, identify the following details of events:
   - The start time of the event (in HH:mm format)
-  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received)
+  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received. For example, if the event is at 6pm, use "2023-04-03T18:00:00", ignore timezone)
   - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
   - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
   - The organization hosting the event (Be Short. Usually a club, however it is possible for individuals to organize events)
@@ -81,11 +87,6 @@ const PROMPT_INTRO = dedent`
 
   Email text:
 `;
-
-//  An event is something that any MIT student could attend at a specific time and location, so if the email is about an audition, job opportunity, or seeking staff for a production, it is not an event.
-const SHORT_MODEL = "gpt-3.5-turbo-0613";
-const LONG_MODEL = "gpt-3.5-turbo-16k-0613";
-const LONG_THRESHOLD = 10000; // 12k chars = 3k tokens
 
 const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
   name: "set_email_has_event",
@@ -136,7 +137,7 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
             date_time: {
               type: "string",
               description:
-                "The date & time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent)"
+                "The date & time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent), ignore time_zone i.e. if emails says 6pm just use 6pm UTC"
             },
             duration: {
               type: "integer",
@@ -212,13 +213,12 @@ export async function extractFromEmail(
 
   logger?.logBlock("assembled prompt", emailWithMetadata);
 
-  const model = emailWithMetadata.length > LONG_THRESHOLD ? LONG_MODEL : SHORT_MODEL;
   let response;
 
   try {
     logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
     const responseIsEvent = await createChatCompletionWithRetry({
-      model,
+      model: CHEAP_MODEL,
       messages: [
         { role: "system", content: PROMPT_INTRO_HAS_EVENT },
         { role: "user", content: emailWithMetadata }
@@ -234,7 +234,7 @@ export async function extractFromEmail(
 
     logger?.logBlock("extract prompt", PROMPT_INTRO);
     response = await createChatCompletionWithRetry({
-      model: "gpt-4-0613",
+      model: MODEL,
       messages: [
         { role: "system", content: PROMPT_INTRO },
         { role: "user", content: emailWithMetadata }
