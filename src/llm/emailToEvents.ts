@@ -48,7 +48,7 @@ const PROMPT_INTRO = dedent`
 
   If the purpose of the email is to advertise for events, identify the following details of events:
   - The start time of the event (in HH:mm format)
-  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received. For example, if the event is at 6pm, use "2023-04-03T18:00:00", ignore timezone)
+  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received. For example, if the event is at 6pm, use "2023-04-03T18:00:00.000Z", ignore timezone)
   - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
   - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
   - The organization hosting the event (Be Short. Usually a club, however it is possible for individuals to organize events)
@@ -60,7 +60,7 @@ const PROMPT_INTRO = dedent`
     "events": [
       {
         "time_in_the_day": "18:00",
-        "date_time": "2023-04-03T18:00:00",
+        "date_time": "2023-04-03T18:00:00.000Z",
         "duration": 90,
         "location": "3-333",
         "organizer": "MIT UN"

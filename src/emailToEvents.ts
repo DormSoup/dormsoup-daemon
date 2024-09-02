@@ -596,11 +596,13 @@ async function sendReply(senderAddress: string, messageId: string, events: Event
   }
   const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
   const paragraphs = events.map((event) => {
+    const eventDate = event.date.toISOString().split("T")[0]; // YYYY-MM-DD
+    const eventTime = event.date.toISOString().split("T")[1].slice(0, 5); // HH:MM
+  
+    const formattedTime = isAllDay(event.date) ? eventDate : `${eventDate} ${eventTime}`;
+  
     return REPLY_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
-      .replace(
-        "{EVENT_TIME}",
-        isAllDay(event.date) ? event.date.toLocaleDateString() : event.date.toLocaleString()
-      )
+      .replace("{EVENT_TIME}", formattedTime)
       .replace("{EVENT_LOCATION}", event.location);
   });
   const html = REPLY_TEMPLATE.replace("{EVENTS}", paragraphs.join("\n"));
