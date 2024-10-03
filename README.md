@@ -3,6 +3,26 @@ Daemon is the component that is responsible for parsing the received emails into
 
 Send emails to dormdigest@scripts.mit.edu to test.
 
+(You need the `.env` file containing API Key and database url from andiliu)
+
+### Testing locally
+First, to authenticate into your email, you need to run
+```
+npm run relay
+```
+
+Then, to test how to parse an email into events, you can run
+```
+npm run testEmailToEventsPrompt
+```
+which would authenticate into your inbox, and you can search by email subject via a substring.
+
+or to
+```
+npm run testEventToTagsPrompt # needs the ssh tunneling in the DormSoup/dormsoup repo because needs access to the database
+```
+to fetch an event and try to tag it.
+
 ### Related Commands on Server
 Do all these on the server
 ```
