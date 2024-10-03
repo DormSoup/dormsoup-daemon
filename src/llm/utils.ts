@@ -90,6 +90,7 @@ export async function createChatCompletionWithRetry(
     } else if (response.status === HttpStatus.BAD_REQUEST) {
       if (process.env.DEBUG_MODE) console.warn("Bad request: ", response);
     } else {
+      console.log("Unexpected response: ", response);
       throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
     }
   }

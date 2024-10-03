@@ -3,8 +3,10 @@ import dedent from "dedent";
 import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
+import { CHEAP_MODEL, MODEL } from "./utils.js";
 
-export const CURRENT_MODEL_NAME = "TAG-0922";
+export const CURRENT_MODEL_NAME = "TAG-20241002";
+
 
 // PLAYsentation (Class Presentation), Logar(Concert), Alien Conspiracy
 
@@ -171,7 +173,7 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     const results: string[] = [];
     const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
     const responseFirstStage = await createChatCompletionWithRetry({
-      model: "gpt-3.5-turbo-0613",
+      model: CHEAP_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text }
@@ -179,7 +181,7 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
       temperature: 0
     });
     const responseSecondStage = await createChatCompletionWithRetry({
-      model: "gpt-3.5-turbo-0613",
+      model: CHEAP_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text },
