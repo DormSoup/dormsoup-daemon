@@ -228,7 +228,7 @@ export async function processNewEmail(email: ParsedMail) {
           fromEmailId: email.messageId
         }
       });
-      if (events === null) {
+      if (events.length === 0) {
         console.error("Event(s) from email were not found in the database. Exiting...");
         return;
       }
