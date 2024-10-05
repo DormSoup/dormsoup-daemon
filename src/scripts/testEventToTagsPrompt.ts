@@ -13,11 +13,25 @@ export async function main() {
   });
   try {
     const eventName = await readlineInterface.question("Event name: ");
-    const event = await prisma.event.findFirstOrThrow({
-      where: { title: { contains: eventName, mode: "insensitive" } }
-    });
-    console.log(event);
-    console.log(await addTagsToEvent(event));
+    const getAllEvents = await readlineInterface.question("Get all events? (y/n): ")
+    if (getAllEvents === "y") {
+      const events = await prisma.event.findMany({
+        where: { title: { contains: eventName, mode: "insensitive" } }
+      });
+      if (events.length === 0) {
+        throw Error(`No events with provided event name ${eventName} were found.`)
+      }
+      for (const event of events) {
+        console.log(event)
+        console.log(await addTagsToEvent(event))
+      }
+    } else {
+      const event = await prisma.event.findFirstOrThrow({
+        where: { title: { contains: eventName, mode: "insensitive" } }
+      });
+      console.log(event);
+      console.log(await addTagsToEvent(event));
+    }
   } finally {
     readlineInterface.close();
     await prisma.$disconnect();
