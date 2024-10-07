@@ -13,8 +13,8 @@ export async function main() {
   });
   try {
     const eventName = await readlineInterface.question("Event name: ");
-    const getAllEvents = await readlineInterface.question("Get all events? (y/n): ")
-    if (getAllEvents === "y") {
+    const getAllEvents = await readlineInterface.question("Get all events? (y/N): ")
+    if (getAllEvents.toLowerCase() === "y") {
       const events = await prisma.event.findMany({
         where: { title: { contains: eventName, mode: "insensitive" } }
       });
