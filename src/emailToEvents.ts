@@ -222,18 +222,21 @@ export async function processNewEmail(email: ParsedMail) {
     if (result === "dormspam-with-event") {
       console.log("Email was successfully processed and event(s) were extracted. Adding tags...");
 
-      // Fetching the event that should've been created if event(s) were extracted to add tags
-      const event = await prisma.event.findFirst({
+      // Fetching the event(s) that should've been created if event(s) were extracted to add tags
+      const events = await prisma.event.findMany({
         where: {
           fromEmailId: email.messageId
         }
       });
-      if (event === null) {
-        console.error("Event from email was not found in the database. Exiting...");
+      if (events.length === 0) {
+        console.error("Event(s) from email were not found in the database. Exiting...");
         return;
       }
-      const tags = await addTagsToEvent(event);
-      await updateEventTags(prisma, event, tags);
+
+      for (const event of events) {
+        const tags = await addTagsToEvent(event);
+        await updateEventTags(prisma, event, tags);
+      }
     }
   }
   finally {
