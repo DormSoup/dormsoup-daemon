@@ -38,6 +38,9 @@ importers:
       filenamify:
         specifier: ^6.0.0
         version: 6.0.0
+      google-auth-library:
+        specifier: 8.9.0
+        version: 8.9.0
       googleapis:
         specifier: '105'
         version: 105.0.0

@@ -58,6 +58,7 @@
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "filenamify": "^6.0.0",
+    "google-auth-library": "8.9.0",
     "googleapis": "105",
     "html-to-text": "^9.0.5",
     "http-proxy-middleware": "^2.0.6",
