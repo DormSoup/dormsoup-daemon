@@ -103,7 +103,7 @@ async function generateThumbnail(today: Date): Promise<string> {
   }
 }
 
-async function getAllEvents(today: Date) {
+export async function getAllEvents(today: Date) {
   const prisma = new PrismaClient();
   try {
     const events = await prisma.event.findMany({
@@ -119,7 +119,8 @@ async function getAllEvents(today: Date) {
         location: true,
         organizer: true,
         tags: { select: { name: true } },
-        fromEmail: { select: { receivedAt: true } }
+        fromEmail: { select: { receivedAt: true } },
+        gcalId: true
       },
       orderBy: {
         liked: {
