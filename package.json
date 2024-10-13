@@ -4,7 +4,6 @@
   "description": "",
   "main": "main.ts",
   "scripts": {
-    "test-gcal": "tsx src/gcal.ts",
     "start": "tsx src/server.ts",
     "relay": "tsx src/scripts/localRelay.ts",
     "llm": "tsx src/llm.ts",
