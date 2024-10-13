@@ -50,6 +50,7 @@
   "dependencies": {
     "@azure/msal-node": "^1.17.1",
     "@azure/msal-node-extensions": "^1.0.0-alpha.34",
+    "@google-cloud/local-auth": "2.1.0",
     "@prisma/client": "^4.14.0",
     "crypto": "^1.0.1",
     "dedent": "^0.7.0",
@@ -57,6 +58,7 @@
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "filenamify": "^6.0.0",
+    "googleapis": "105",
     "html-to-text": "^9.0.5",
     "http-proxy-middleware": "^2.0.6",
     "http-status-codes": "^2.2.0",
