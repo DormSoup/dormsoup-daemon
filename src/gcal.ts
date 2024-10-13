@@ -3,6 +3,8 @@ import { promises as fs } from "fs";
 import { authenticate } from "@google-cloud/local-auth";
 import { google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
+import dotenv from "dotenv";
+dotenv.config();
 
 // If modifying these scopes, delete token.json.
 const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"];
@@ -34,10 +36,6 @@ async function saveCredentials(client: OAuth2Client) {
   await fs.writeFile(TOKEN_PATH, payload);
 }
 
-/**
- * Load or request or authorization to call APIs.
- *
- */
 async function authorize(): Promise<OAuth2Client> {
   const savedClient = await loadSavedCredentialsIfExist();
   if (savedClient) return savedClient as any;
@@ -50,27 +48,27 @@ async function authorize(): Promise<OAuth2Client> {
   return authedClient;
 }
 
-async function listEvents(auth: OAuth2Client) {
-  const calendar = google.calendar({ version: "v3", auth });
+authorize()
+  .then(async (auth) => {
+    const calendar = google.calendar({ version: "v3", auth });
 
-  const res = await calendar.events.list({
-    calendarId: "primary",
-    timeMin: new Date().toISOString(),
-    maxResults: 10,
-    singleEvents: true,
-    orderBy: "startTime"
-  });
-  const events = res.data.items;
-  if (!events || events.length === 0) {
-    console.log("No upcoming events found.");
-    return;
-  }
-  console.log("Upcoming 10 events:");
-  events.map((event, i) => {
-    if (!event.start) return;
-    const start = event.start.dateTime || event.start.date;
-    console.log(`${start} - ${event.summary}`);
-  });
-}
-
-authorize().then(listEvents).catch(console.error);
+    const res = await calendar.events.list({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      timeMin: new Date().toISOString(),
+      maxResults: 10,
+      singleEvents: true,
+      orderBy: "startTime"
+    });
+    const events = res.data.items;
+    if (!events || events.length === 0) {
+      console.log("No upcoming events found.");
+      return;
+    }
+    console.log("Upcoming 10 events:");
+    events.map((event) => {
+      if (!event.start) return;
+      const start = event.start.dateTime || event.start.date;
+      console.log(`${start} - ${event.summary}`);
+    });
+  })
+  .catch(console.error);
