@@ -1,7 +1,7 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { authenticate } from "@google-cloud/local-auth";
-import { google } from "googleapis";
+import { calendar_v3, google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
 import { getAllEvents } from "./subscription";
 import { PrismaClient } from "@prisma/client";
@@ -98,17 +98,21 @@ export async function syncGCal() {
         // @ts-ignore
         resource: gcalEvent
       },
-      function (err: any, event: any) {
+      function (err: Error | null, gcalCreatedEvent: calendar_v3.Schema$Event) {
         if (err) {
           console.log("There was an error contacting gcal: " + err);
           return;
         }
 
-        console.log("Gcal event created: %s", event.htmlLink);
+        if (!gcalCreatedEvent.id) {
+          console.log("Gcal event created, but no id returned: ", gcalCreatedEvent);
+          return;
+        }
 
+        // Update the event in the DormSoup DB with the gcal id, to avoid re-creating it.
         prisma.event.update({
           where: { id: event.id },
-          data: { gcalId: event.id }
+          data: { gcalId: gcalCreatedEvent.id }
         });
       }
     );

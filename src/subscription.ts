@@ -114,6 +114,7 @@ export async function getAllEvents(today: Date) {
         }
       },
       select: {
+        id: true,
         title: true,
         date: true,
         location: true,
