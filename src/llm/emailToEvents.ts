@@ -20,6 +20,16 @@ export interface Event {
   duration: number;
 }
 
+const PROMPT_INTRO_HAS_EVENT_GRAMMAR = dedent`
+   boolean ::= ("true" | "false") space
+   char ::= [^"\\\\\\x7F\\x00-\\x1F] | [\\\\] (["\\\\bfnrt] | "u" [0-9a-fA-F]{4})
+   has-event-kv ::= "\\"has_event\\"" space ":" space boolean
+   has-event-rest ::= ( "," space rejected-reason-kv )?
+   rejected-reason-kv ::= "\\"rejected_reason\\"" space ":" space string
+   root ::= "{" space  (has-event-kv has-event-rest | rejected-reason-kv )? "}" space
+   space ::= | " " | "\\n" [ \\t]{0,20}
+   string ::= "\\"" char* "\\"" space`
+
 const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
@@ -29,18 +39,42 @@ const PROMPT_INTRO_HAS_EVENT = dedent`
   Common events include:
   - Talks
   - Shows
-  
+
   If the purpose of the email is not to advertise for or inform about events, respond False and give reasons why (what about the email made you respond false).
   Cases where the email is not advertising for an event include:
   - Senior sales
   - Some individuals trying to resell tickets
   - Hiring staff (actors, volunteers) for upcoming events
   - Job applications
-  
+
   The email you need to analyze is given below is delimited with triple backticks.
 
   Email text:
 `;
+
+const PROMPT_INTRO_GRAMMAR = dedent`
+   char ::= [^"\\\\\\x7F\\x00-\\x1F] | [\\\\] (["\\\\bfnrt] | "u" [0-9a-fA-F]{4})
+   events ::= "[" space (events-item ("," space events-item)*)? "]" space
+   events-item ::= "{" space  (events-item-title-kv events-item-title-rest | events-item-time-in-the-day-kv events-item-time-in-the-day-rest | events-item-date-time-kv events-item-date-time-rest | events-item-duration-kv events-item-duration-rest | events-item-location-kv events-item-location-rest | events-item-organizer-kv )? "}" space
+   events-item-date-time-kv ::= "\\"date_time\\"" space ":" space string
+   events-item-date-time-rest ::= ( "," space events-item-duration-kv )? events-item-duration-rest
+   events-item-duration-kv ::= "\\"duration\\"" space ":" space integer
+   events-item-duration-rest ::= ( "," space events-item-location-kv )? events-item-location-rest
+   events-item-location-kv ::= "\\"location\\"" space ":" space string
+   events-item-location-rest ::= ( "," space events-item-organizer-kv )?
+   events-item-organizer-kv ::= "\\"organizer\\"" space ":" space string
+   events-item-time-in-the-day-kv ::= "\\"time_in_the_day\\"" space ":" space string
+   events-item-time-in-the-day-rest ::= ( "," space events-item-date-time-kv )? events-item-date-time-rest
+   events-item-title-kv ::= "\\"title\\"" space ":" space string
+   events-item-title-rest ::= ( "," space events-item-time-in-the-day-kv )? events-item-time-in-the-day-rest
+   events-kv ::= "\\"events\\"" space ":" space events
+   integer ::= ("-"? integral-part) space
+   integral-part ::= [0] | [1-9] [0-9]{0,15}
+   rejected-reason-kv ::= "\\"rejected_reason\\"" space ":" space string
+   rejected-reason-rest ::= ( "," space events-kv )?
+   root ::= "{" space  (rejected-reason-kv rejected-reason-rest | events-kv )? "}" space
+   space ::= | " " | "\\n" [ \\t]{0,20}
+   string ::= "\\"" char* "\\"" space`
 
 const PROMPT_INTRO = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
@@ -80,13 +114,64 @@ const PROMPT_INTRO = dedent`
   - Some individuals trying to resell tickets
   - Hiring staff (actors, volunteers) for upcoming events
   - Job applications
-  
+
   If the information is not present in the email, leave the value as "unknown".
 
   The email you need to analyze is given below is delimited with triple backticks.
 
   Email text:
 `;
+
+async function doCompletion(prompt: string, grammar: string): Promise<any> {
+   try {
+      const response = await fetch(SIPB_LLMS_API_ENDPOINT, {
+         method: "POST",
+         headers: {
+            "Authorization": `Bearer ${SIPB_LLMS_API_TOKEN}`,
+            "Content-Type": `application/json`,
+         },
+         body: JSON.stringify({
+            "messages": [
+               {"role": "user", "content": prompt},
+            ],
+            "stream": true,  // ?
+            "tokenize": true,
+            "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
+            "cache_prompt": false,
+            "frequency_penalty": 0,
+            "grammar": grammar,
+            "image_data": [],
+            //"model": "mixtral",
+            "min_p": 0.05,
+            "mirostat": 0,
+            "mirostat_eta": 0.1,
+            "mirostat_tau": 5,
+            //"n_predict": 1000,
+            "n_probs": 0,
+            "presence_penalty": 0,
+            "repeat_last_n": 256,
+            "repeat_penalty": 1.18,
+            "seed": -1,
+            "slot_id": -1,
+            "temperature": 0.7,
+            "tfs_z": 1,
+            "top_k": 40,
+            "top_p": 0.95,
+            "typical_p": 1,
+         }),
+      });
+
+      if (!response.ok)
+         throw new Error(`HTTP error: ${response.status}`);
+
+      const data = await response.json();
+      return data["choices"][0]["message"]["content"];
+
+   } catch (error) {
+      console.error(`Error with completion:`, error);
+      throw error;
+   }
+}
 
 const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
   name: "set_email_has_event",
@@ -206,7 +291,7 @@ export async function extractFromEmail(
     Date Received: ${formatDateInET(dateReceived)}
     Body:
     ${body}
-    \`\`\`                
+    \`\`\`
   `;
 
   if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
@@ -217,15 +302,10 @@ export async function extractFromEmail(
 
   try {
     logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
-    const responseIsEvent = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: PROMPT_INTRO_HAS_EVENT },
-        { role: "user", content: emailWithMetadata }
-      ],
-      functions: [HAS_EVENT_PREDICATE_FUNCTION],
-      function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
-    });
+    const responseIsEvent = await doCompletion(
+      `${PROMPT_INTRO_HAS_EVENT}\n\`\`\`\n${emailWithMetadata}\n\`\`\`\n\n---------------- Response --------------\n`,
+      PROMPT_INTRO_HAS_EVENT_GRAMMAR
+    );
 
     logger?.logBlock("is_event response", JSON.stringify(responseIsEvent));
     // console.log(responseIsEvent);
@@ -233,15 +313,10 @@ export async function extractFromEmail(
       return { status: "rejected-by-gpt-3", reason: responseIsEvent["rejected_reason"] };
 
     logger?.logBlock("extract prompt", PROMPT_INTRO);
-    response = await createChatCompletionWithRetry({
-      model: MODEL,
-      messages: [
-        { role: "system", content: PROMPT_INTRO },
-        { role: "user", content: emailWithMetadata }
-      ],
-      functions: [EXTRACT_FUNCTION],
-      function_call: { name: EXTRACT_FUNCTION.name }
-    });
+    response = await doCompletion(
+      `${PROMPT_INTRO}\n\`\`\`\n${emailWithMetadata}\n\`\`\`\n\n---------------- Response --------------\n`,
+      PROMPT_INTRO_GRAMMAR
+    );
     logger?.logBlock("extract response", JSON.stringify(response));
   } catch (error) {
     return { status: "error-openai-network", error };
