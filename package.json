@@ -8,6 +8,7 @@
     "relay": "tsx src/scripts/localRelay.ts",
     "llm": "tsx src/llm.ts",
     "testEmailToEventsPrompt": "tsx src/scripts/testEmailToEventsPrompt.ts",
+    "testLocalEmailToEventsPrompt": "tsx src/scripts/testLocalEmailToEventsPrompt.ts",
     "testEventToTagsPrompt": "tsx src/scripts/testEventToTagsPrompt.ts",
     "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
@@ -57,6 +58,8 @@
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "filenamify": "^6.0.0",
+    "glob": "^8.1.0",
+    "glob-promise": "^6.0.7",
     "html-to-text": "^9.0.5",
     "http-proxy-middleware": "^2.0.6",
     "http-status-codes": "^2.2.0",
@@ -70,6 +73,6 @@
     "openai": "^3.2.1",
     "puppeteer": "^21.3.8",
     "sanitize-filename": "^1.6.3",
-    "tsx": "^4.17.0"
+    "tsx": "^4.19.1"
   }
 }
