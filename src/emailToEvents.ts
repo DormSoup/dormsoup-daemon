@@ -496,7 +496,7 @@ async function processMail(
           location: event.location,
           organizer: event.organizer,
           duration: event.duration,
-          fromEmail: { connect: { messageId: rootMessageId } },
+          fromEmail: { connect: { messageId: messageId } },
           text
         };
         for (const [title, distance] of knn) {
