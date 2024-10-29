@@ -1,11 +1,9 @@
 import assert from "assert";
-import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { extractFromEmail } from "../llm/emailToEvents.js";
+import { debugEmailToEvents } from "./debugEmailParsing.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -17,23 +15,6 @@ import { extractFromEmail } from "../llm/emailToEvents.js";
 // Volunteering Oppurtunity: Teach CS to Under-resourced High Schoolers
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
-
-function isDormspam(text: string): boolean {
-  // See https://how-to-dormspam.mit.edu/.
-  const dormspamKeywords = [
-    "bcc'd to all dorms",
-    "bcc's to all dorms",
-    "bcc'd to dorms",
-    "bcc'ed dorms",
-    "bcc'ed to dorms",
-    "bcc to dorms",
-    "bcc'd to everyone",
-    "bcc dormlists",
-    "bcc to dormlists",
-    "for bc-talk"
-  ];
-  return dormspamKeywords.some((keyword) => text.includes(keyword));
-}
 
 async function main(): Promise<void> {
   process.env.DEBUG_MODE = "true";
@@ -70,21 +51,7 @@ async function main(): Promise<void> {
       },
       { uid: true }
     );
-    const parsed = await simpleParser(message.source, {
-      skipImageLinks: true,
-      skipHtmlToText: false
-    });
-    assert(parsed.html);
-
-    const text = parsed.text ?? convert(parsed.html);
-    console.log(text);
-    console.log(isDormspam(text));
-    const event = await extractFromEmail(
-      parsed.subject ?? "No subject",
-      text,
-      parsed.date ?? new Date()
-    );
-    console.log("Extracted event:", event);
+    debugEmailToEvents(message.source);
   } finally {
     lock.release();
     await client.logout();

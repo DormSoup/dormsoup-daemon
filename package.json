@@ -9,6 +9,7 @@
     "llm": "tsx src/llm.ts",
     "testEmailToEventsPrompt": "tsx src/scripts/testEmailToEventsPrompt.ts",
     "testEventToTagsPrompt": "tsx src/scripts/testEventToTagsPrompt.ts",
+    "parseEmailFromFile": "tsx src/scripts/parseEmailFromFile.ts",
     "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
     "oneOffTask": "tsx src/scripts/oneOffTask.ts",

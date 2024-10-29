@@ -293,7 +293,7 @@ const isDormspamRegex = new RegExp(
   "ui"
 );
 
-function isDormspam(text: string): boolean {
+export function isDormspam(text: string): boolean {
   return isDormspamRegex.test(text) && !text.includes("dormsoup-ignore");
 }
 
