@@ -5,7 +5,7 @@ import { simpleParser, Source } from "mailparser";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { extractFromEmail } from "../llm/emailToEvents.js";
+import { extractFromEmail, Event, ExtractFromEmailResult, NonEmptyArray } from "../llm/emailToEvents.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -40,8 +40,9 @@ function isDormspam(text: string): boolean {
  * then parse the email to extract the events and print this.
  * 
  * @param message The raw email content, as a Buffer or string.
+ * @returns A list of events
  */
-async function debugEmailToEvents(messageSource: Source): Promise<void> {
+async function debugEmailToEvents(messageSource: Source): Promise<NonEmptyArray<Event>> {
   const parsed = await simpleParser(messageSource, {
     skipImageLinks: true,
     skipHtmlToText: false
@@ -51,12 +52,18 @@ async function debugEmailToEvents(messageSource: Source): Promise<void> {
   const text = parsed.text ?? convert(parsed.html);
   console.log(text);
   console.log("Is this a dormspam email?", isDormspam(text));
-  const event = await extractFromEmail(
+  const result: ExtractFromEmailResult = await extractFromEmail(
     parsed.subject ?? "No subject",
     text,
     parsed.date ?? new Date()
   );
-  console.log("Extracted event:", event);
+  console.log("Extracted event:", result);
+  if (result.status === "admitted") {
+    const events = result.events;
+    return events;
+  } else {
+    assert(false, "The event was not successfully extracted");
+  }
 }
 
 async function main(): Promise<void> {
