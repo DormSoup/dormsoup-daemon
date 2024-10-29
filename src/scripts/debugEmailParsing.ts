@@ -2,13 +2,8 @@ import assert from "assert";
 import { convert } from "html-to-text";
 import { Source, simpleParser } from "mailparser";
 
-import {
-  Event,
-  ExtractFromEmailResult,
-  NonEmptyArray,
-  extractFromEmail
-} from "../llm/emailToEvents.js";
 import { isDormspam } from "../emailToEvents.js";
+import { Event, ExtractFromEmailResult, extractFromEmail } from "../llm/emailToEvents.js";
 
 /**
  * Print some debugging information (whether the message was parsed as dormspam),
@@ -17,7 +12,7 @@ import { isDormspam } from "../emailToEvents.js";
  * @param message The raw email content, as a Buffer or string.
  * @returns A list of events
  */
-export async function debugEmailToEvents(messageSource: Source): Promise<NonEmptyArray<Event>> {
+export async function debugEmailToEvents(messageSource: Source): Promise<Event[]> {
   const parsed = await simpleParser(messageSource, {
     skipImageLinks: true,
     skipHtmlToText: false
@@ -37,6 +32,7 @@ export async function debugEmailToEvents(messageSource: Source): Promise<NonEmpt
     const events = result.events;
     return events;
   } else {
-    assert(false, "The event was not successfully extracted");
+    console.warn("The event was not successfully extracted");
+    return [];
   }
 }
