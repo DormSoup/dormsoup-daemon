@@ -1,7 +1,7 @@
 import assert from "assert";
 import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
+import { simpleParser, Source } from "mailparser";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
@@ -33,6 +33,30 @@ function isDormspam(text: string): boolean {
     "for bc-talk"
   ];
   return dormspamKeywords.some((keyword) => text.includes(keyword));
+}
+
+/**
+ * Print some debugging information (whether the message was parsed as dormspam),
+ * then parse the email to extract the events and print this.
+ * 
+ * @param message The raw email content, as a Buffer or string.
+ */
+async function debugEmailToEvents(messageSource: Source): Promise<void> {
+  const parsed = await simpleParser(messageSource, {
+    skipImageLinks: true,
+    skipHtmlToText: false
+  });
+  assert(parsed.html);
+
+  const text = parsed.text ?? convert(parsed.html);
+  console.log(text);
+  console.log("Is this a dormspam email?", isDormspam(text));
+  const event = await extractFromEmail(
+    parsed.subject ?? "No subject",
+    text,
+    parsed.date ?? new Date()
+  );
+  console.log("Extracted event:", event);
 }
 
 async function main(): Promise<void> {
@@ -70,21 +94,7 @@ async function main(): Promise<void> {
       },
       { uid: true }
     );
-    const parsed = await simpleParser(message.source, {
-      skipImageLinks: true,
-      skipHtmlToText: false
-    });
-    assert(parsed.html);
-
-    const text = parsed.text ?? convert(parsed.html);
-    console.log(text);
-    console.log(isDormspam(text));
-    const event = await extractFromEmail(
-      parsed.subject ?? "No subject",
-      text,
-      parsed.date ?? new Date()
-    );
-    console.log("Extracted event:", event);
+    debugEmailToEvents(message.source);
   } finally {
     lock.release();
     await client.logout();
