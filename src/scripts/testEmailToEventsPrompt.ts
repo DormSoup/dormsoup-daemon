@@ -1,11 +1,9 @@
 import assert from "assert";
-import { convert } from "html-to-text";
 import { ImapFlow } from "imapflow";
-import { simpleParser, Source } from "mailparser";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { extractFromEmail, Event, ExtractFromEmailResult, NonEmptyArray } from "../llm/emailToEvents.js";
+import { debugEmailToEvents } from "./debugEmailParsing.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -17,54 +15,6 @@ import { extractFromEmail, Event, ExtractFromEmailResult, NonEmptyArray } from "
 // Volunteering Oppurtunity: Teach CS to Under-resourced High Schoolers
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
-
-function isDormspam(text: string): boolean {
-  // See https://how-to-dormspam.mit.edu/.
-  const dormspamKeywords = [
-    "bcc'd to all dorms",
-    "bcc's to all dorms",
-    "bcc'd to dorms",
-    "bcc'ed dorms",
-    "bcc'ed to dorms",
-    "bcc to dorms",
-    "bcc'd to everyone",
-    "bcc dormlists",
-    "bcc to dormlists",
-    "for bc-talk"
-  ];
-  return dormspamKeywords.some((keyword) => text.includes(keyword));
-}
-
-/**
- * Print some debugging information (whether the message was parsed as dormspam),
- * then parse the email to extract the events and print this.
- * 
- * @param message The raw email content, as a Buffer or string.
- * @returns A list of events
- */
-async function debugEmailToEvents(messageSource: Source): Promise<NonEmptyArray<Event>> {
-  const parsed = await simpleParser(messageSource, {
-    skipImageLinks: true,
-    skipHtmlToText: false
-  });
-  assert(parsed.html);
-
-  const text = parsed.text ?? convert(parsed.html);
-  console.log(text);
-  console.log("Is this a dormspam email?", isDormspam(text));
-  const result: ExtractFromEmailResult = await extractFromEmail(
-    parsed.subject ?? "No subject",
-    text,
-    parsed.date ?? new Date()
-  );
-  console.log("Extracted event:", result);
-  if (result.status === "admitted") {
-    const events = result.events;
-    return events;
-  } else {
-    assert(false, "The event was not successfully extracted");
-  }
-}
 
 async function main(): Promise<void> {
   process.env.DEBUG_MODE = "true";
