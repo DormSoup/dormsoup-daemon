@@ -25,7 +25,7 @@ const startServer = () => {
   }, 1000 * 60); // Every minute.
   setInterval(async () => {
     await syncGCal();
-  }, 1000 * 60 * 30); // Every 30 minutes.
+  }, 1000 * 60 * 5); // Every 5 minutes.
 };
 
 startServer();

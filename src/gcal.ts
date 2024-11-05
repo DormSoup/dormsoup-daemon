@@ -42,6 +42,8 @@ async function authorize(): Promise<OAuth2Client> {
   const savedClient = await loadSavedCredentialsIfExist();
   if (savedClient) return savedClient as any;
 
+  // This doesn't really work on a server, do this step locally to
+  // get a `token.json` file, and then copy it over to the server.
   const authedClient = await authenticate({
     scopes: SCOPES,
     keyfilePath: CREDENTIALS_PATH
