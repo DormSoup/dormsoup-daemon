@@ -53,7 +53,7 @@ async function authorize(): Promise<OAuth2Client> {
 }
 
 export async function syncGCal() {
-  console.log("Syncing GCal...");
+  console.log("Preparing to sync GCal...");
 
   const prisma = new PrismaClient();
 
@@ -62,6 +62,8 @@ export async function syncGCal() {
 
   const today = new Date();
   const events = await getAllEventsCreated(today);
+
+  console.log(`Found ${events.length} events to sync to GCal.`);
 
   for (const event of events) {
     if (event.gcalId) {
