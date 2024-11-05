@@ -17,3 +17,5 @@ sync.sh
 .DS_Store
 
 push.date
+
+*.eml

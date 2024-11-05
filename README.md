@@ -6,6 +6,24 @@ To test, send emails to `dormdigest@scripts.mit.edu`.
 
 (You’ll need the `.env` file containing the API key and database URL from andiliu.)
 
+### (WIP) Testing Locally Without Outlook/Office365
+
+Fetch the email (`.eml` or `.txt` file) you wish to test from
+* Our example archive of dormspam emails from GitHub, located at <https://github.mit.edu/sipb/dormdigest-emails>
+* Our log of most previously saved emails, located at `/afs/sipb.mit.edu/project/dormdigest/mail_scripts/saved` (ask other SIPB members how to access AFS)
+* Download from your favorite email client. On Outlook web, click the "..." button then click on "Save as".
+
+Now run
+
+```bash
+npm run parseEmailFromFile study_break.eml
+```
+
+This script works to test event date/time parsing, but not to test tag assigning.
+
+For now, you can test the event to tags part by running `npm run testEventToTagsPrompt` as described below,
+which needs database credentials, but does not actually need you to be logged in to Outlook/Office365.
+
 ### Testing Locally
 
 First, to authenticate into your email, run:
