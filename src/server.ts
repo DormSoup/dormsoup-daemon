@@ -22,10 +22,8 @@ const startServer = () => {
   setInterval(async () => {
     await pushToSubscribers();
     await flushEmbeddings();
-  }, 1000 * 60); // Every minute.
-  setInterval(async () => {
     await syncGCal();
-  }, 1000 * 60 * 15); // Every 15 minutes.
+  }, 1000 * 60); // Every minute.
 };
 
 startServer();

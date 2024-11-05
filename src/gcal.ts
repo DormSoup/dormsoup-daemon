@@ -66,15 +66,16 @@ export async function syncGCal() {
   console.log(`Found ${events.length} events to sync to GCal.`);
 
   for (const event of events) {
+    // This shouldn't be needed as we also filter at the query level but just in case.
     if (event.gcalId) {
       console.log(`Event ${event.title} already has a gcalId: ${event.gcalId}`);
-      continue;
+
     }
 
     // If it was just created, wait a little bit before processing it. Tags, etc could still be updating.
     if (
       event.fromEmail?.receivedAt &&
-      event.fromEmail.receivedAt.getTime() > today.getTime() - 1000 * 60 * 30 // 30 minutes.
+      event.fromEmail.receivedAt.getTime() > (today.getTime() - 1000 * 60 * 10) // 10 minutes.
     ) {
       console.log(`Event ${event.title} was just created, waiting a bit before syncing to gcal.`);
       continue;
