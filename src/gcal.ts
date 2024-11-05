@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import { authenticate } from "@google-cloud/local-auth";
 import { calendar_v3, google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
-import { getAllEvents } from "./subscription";
+import { getAllEventsCreated } from "./subscription";
 import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 dotenv.config();
@@ -57,7 +57,7 @@ export async function syncGCal() {
   const gcal = google.calendar({ version: "v3", auth });
 
   const today = new Date();
-  const events = await getAllEvents(today);
+  const events = await getAllEventsCreated(today);
 
   for (const event of events) {
     if (event.gcalId) {
