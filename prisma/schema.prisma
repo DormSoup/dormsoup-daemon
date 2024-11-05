@@ -28,7 +28,7 @@ model Event {
   date      DateTime
   location  String
   duration  Int      @default(60)
-  gcalId String?
+  gcalId    String?
 
   liked EmailSender[]
 
