@@ -6,6 +6,7 @@ import { ParsedMail, simpleParser } from "mailparser";
 import { processNewEmail } from "./emailToEvents";
 import { pushToSubscribers } from "./subscription";
 import { flushEmbeddings } from "./vectordb";
+import { syncGCal } from "./gcal";
 
 dotenv.config();
 const MAIL_SCRIPTS_TOKEN = process.env.MAIL_SCRIPTS_TOKEN;
@@ -21,7 +22,10 @@ const startServer = () => {
   setInterval(async () => {
     await pushToSubscribers();
     await flushEmbeddings();
-  }, 1000 * 60);
+  }, 1000 * 60); // Every minute.
+  setInterval(async () => {
+    await syncGCal();
+  }, 1000 * 60 * 30); // Every 30 minutes.
 };
 
 startServer();

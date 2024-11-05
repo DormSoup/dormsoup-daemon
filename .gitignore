@@ -10,6 +10,9 @@ logs
 
 embeddings.json*
 
+credentials.json
+token.json
+
 sync.sh
 .DS_Store
 
