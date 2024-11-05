@@ -103,13 +103,13 @@ export async function syncGCal() {
         // @ts-ignore
         resource: gcalEvent
       },
-      function (err: Error | null, gcalCreatedEvent: calendar_v3.Schema$Event) {
+      function (err: Error | null, gcalCreatedEvent: { data?: calendar_v3.Schema$Event }) {
         if (err) {
           console.log("There was an error contacting gcal: " + err);
           return;
         }
 
-        if (!gcalCreatedEvent.id) {
+        if (!gcalCreatedEvent.data?.id) {
           console.log("Gcal event created, but no id returned: ", gcalCreatedEvent);
           return;
         }
@@ -117,7 +117,7 @@ export async function syncGCal() {
         // Update the event in the DormSoup DB with the gcal id, to avoid re-creating it.
         prisma.event.update({
           where: { id: event.id },
-          data: { gcalId: gcalCreatedEvent.id }
+          data: { gcalId: gcalCreatedEvent.data?.id }
         });
       }
     );
