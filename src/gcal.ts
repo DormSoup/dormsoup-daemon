@@ -53,6 +53,8 @@ async function authorize(): Promise<OAuth2Client> {
 }
 
 export async function syncGCal() {
+  console.log("Syncing GCal...");
+
   const prisma = new PrismaClient();
 
   const auth = await authorize();
@@ -84,9 +86,7 @@ export async function syncGCal() {
     const gcalEvent = {
       summary: event.title,
       location: event.location,
-      description: `Organized by ${event.organizer}. Tags: ${event.tags
-        .map((tag) => tag.name)
-        .join(", ")}.`,
+      description: event.text,
       start: {
         dateTime: removeUTCMarker(event.date),
         timeZone: "America/New_York"
@@ -104,7 +104,7 @@ export async function syncGCal() {
         // @ts-ignore
         resource: gcalEvent
       },
-      function (err: Error | null, gcalCreatedEvent: { data?: calendar_v3.Schema$Event }) {
+      async function (err: Error | null, gcalCreatedEvent: { data?: calendar_v3.Schema$Event }) {
         if (err) {
           console.log("There was an error contacting gcal: " + err);
           return;
@@ -116,10 +116,15 @@ export async function syncGCal() {
         }
 
         // Update the event in the DormSoup DB with the gcal id, to avoid re-creating it.
-        prisma.event.update({
-          where: { id: event.id },
-          data: { gcalId: gcalCreatedEvent.data?.id }
-        });
+        try {
+          console.log(`Updating event ${event.id} with gcal id ${gcalCreatedEvent.data.id}`);
+          await prisma.event.update({
+            where: { id: event.id },
+            data: { gcalId: gcalCreatedEvent.data.id }
+          });
+        } catch (e) {
+          console.error(`Error updating event ${event.title} with gcal id ${gcalCreatedEvent.data.id}: ${e}`);
+        }
       }
     );
   }

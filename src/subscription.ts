@@ -147,7 +147,8 @@ export async function getAllEventsCreated(today: Date) {
             gte: new Date(today.getTime() - 24 * 60 * 60 * 1000),
             lt: today
           }
-        }
+        },
+        gcalId: null
       },
       select: {
         id: true,
@@ -158,7 +159,8 @@ export async function getAllEventsCreated(today: Date) {
         organizer: true,
         tags: { select: { name: true } },
         fromEmail: { select: { receivedAt: true } },
-        gcalId: true
+        gcalId: true,
+        text: true,
       },
       orderBy: {
         liked: {
