@@ -74,6 +74,11 @@ export async function syncGCal() {
       continue;
     }
 
+    // Remove the Z suffix from ISO string to avoid timezone issues with Google Calendar
+    // API The Z indicates UTC, but we want to use the America/New_York timezone.
+    // andiliu: "we store time as if they are ISO when in fact they are in EST"
+    const removeUTCMarker = (date: Date) => date.toISOString().replace(/Z$/, "");
+
     const gcalEvent = {
       summary: event.title,
       location: event.location,
@@ -81,12 +86,12 @@ export async function syncGCal() {
         .map((tag) => tag.name)
         .join(", ")}.`,
       start: {
-        dateTime: event.date.toISOString(),
+        dateTime: removeUTCMarker(event.date),
         timeZone: "America/New_York"
       },
       end: {
         // Just assume it ends 1 hour after it starts, for now.
-        dateTime: new Date(event.date.getTime() + 60 * 60 * 1000).toISOString(),
+        dateTime: removeUTCMarker(new Date(event.date.getTime() + 60 * 60 * 1000)),
         timeZone: "America/New_York"
       }
     };
