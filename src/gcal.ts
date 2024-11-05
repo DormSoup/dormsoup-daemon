@@ -90,8 +90,7 @@ export async function syncGCal() {
         timeZone: "America/New_York"
       },
       end: {
-        // Just assume it ends 1 hour after it starts, for now.
-        dateTime: removeUTCMarker(new Date(event.date.getTime() + 60 * 60 * 1000)),
+        dateTime: removeUTCMarker(new Date(event.date.getTime() + event.duration * 60 * 1000)), // Duration is in minutes.
         timeZone: "America/New_York"
       }
     };

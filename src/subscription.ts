@@ -154,6 +154,7 @@ export async function getAllEventsCreated(today: Date) {
         title: true,
         date: true,
         location: true,
+        duration: true,
         organizer: true,
         tags: { select: { name: true } },
         fromEmail: { select: { receivedAt: true } },
