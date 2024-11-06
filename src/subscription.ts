@@ -137,46 +137,6 @@ export async function getAllEvents(today: Date) {
   }
 }
 
-export async function getAllEventsCreated(today: Date) {
-  const prisma = new PrismaClient();
-  try {
-    const events = await prisma.event.findMany({
-      where: {
-        fromEmail: {
-          receivedAt: {
-            gte: new Date(today.getTime() - 24 * 60 * 60 * 1000),
-            lt: today
-          }
-        },
-        gcalId: null
-      },
-      select: {
-        id: true,
-        title: true,
-        date: true,
-        location: true,
-        duration: true,
-        organizer: true,
-        tags: { select: { name: true } },
-        fromEmail: { select: { receivedAt: true } },
-        gcalId: true,
-        text: true,
-      },
-      orderBy: {
-        liked: {
-          _count: "desc"
-        }
-      }
-    });
-    return events;
-  } catch (e) {
-    console.error(e);
-    return [];
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
 const PUSH_TEMPLATE = dedent`
 <body>
   <p>

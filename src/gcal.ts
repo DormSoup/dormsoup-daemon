@@ -3,7 +3,6 @@ import { promises as fs } from "fs";
 import { authenticate } from "@google-cloud/local-auth";
 import { calendar_v3, google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
-import { getAllEventsCreated } from "./subscription";
 import { PrismaClient } from "@prisma/client";
 import dotenv from "dotenv";
 dotenv.config();
@@ -61,7 +60,7 @@ export async function syncGCal() {
   const gcal = google.calendar({ version: "v3", auth });
 
   const today = new Date();
-  const events = await getAllEventsCreated(today);
+  const events = await getAllEventsCreatedRecently(today);
 
   console.log(`Found ${events.length} events to sync to GCal.`);
 
@@ -130,5 +129,38 @@ export async function syncGCal() {
         }
       }
     );
+  }
+}
+
+export async function getAllEventsCreatedRecently(today: Date) {
+  const prisma = new PrismaClient();
+  try {
+    const events = await prisma.event.findMany({
+      where: {
+        fromEmail: {
+          receivedAt: {
+            gte: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000), // Up to 30 days ago.
+            lt: today
+          }
+        },
+        gcalId: null
+      },
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        location: true,
+        duration: true,
+        fromEmail: { select: { receivedAt: true } },
+        gcalId: true,
+        text: true,
+      }
+    });
+    return events;
+  } catch (e) {
+    console.error(e);
+    return [];
+  } finally {
+    await prisma.$disconnect();
   }
 }
