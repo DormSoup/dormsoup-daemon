@@ -26,6 +26,54 @@ which needs database credentials, but does not actually need you to be logged in
 
 ### Testing Locally
 
+#### Setting up a Development Database
+
+1. Start PostgreSQL if it's not running:
+```bash
+brew services start postgresql@14
+```
+
+2. Create and seed a development database:
+```bash
+npm run create-test
+```
+This command will:
+- Check if your DATABASE_URL ends with 'dev' (for safety)
+- Create the database if it doesn't exist
+- Push the schema
+- Create test data including:
+  - A test email sender
+  - A test email
+  - A test event
+
+3. In your `.env` file, make sure you're using the development database:
+```env
+# Production DB (via SSH tunnel)
+# DATABASE_URL="postgresql://dormsoup:Hakken23@localhost:5432/dormsoup"
+
+# Development DB (local)
+DATABASE_URL="postgresql://dormsoup:Hakken23@localhost:5432/dormsoup_dev"
+```
+
+To reset your development database:
+```bash
+dropdb dormsoup_dev
+npm run create-test
+```
+
+For testing any database-related code, you have two options:
+
+1. Use the production database (via SSH tunnel):
+```bash
+ssh DormSoup -L 5432:localhost:5432 # or dormdigest.mit.edu, depending on your SSH config
+```
+Then comment/uncomment the appropriate DATABASE_URL in your `.env` file.
+
+2. Use your local development database:
+Make sure your `.env` file points to your local development database (see above).
+
+#### Testing Email Processing
+
 First, to authenticate into your email, run:
 ```bash
 npm run relay
@@ -37,11 +85,16 @@ npm run testEmailToEventsPrompt
 ```
 This command authenticates into your inbox and allows you to search by email subject using a substring.
 
-For any tests requiring database access, use reverse SSH tunneling to connect to the server:
+For any tests requiring database access, you have two options:
+
+1. Use the production database (via SSH tunnel):
 ```bash
 ssh DormSoup -L 5432:localhost:5432 # or dormdigest.mit.edu, depending on your SSH config
 ```
-Be aware that you’ll be connected to our production database (we currently don’t have a separate dev environment), so proceed with caution.
+Then comment/uncomment the appropriate DATABASE_URL in your `.env` file to use the production database.
+
+2. Use your local development database:
+Make sure your `.env` file points to your local development database (see "Setting up a Development Database" above).
 
 You can then test database-related code, such as:
 ```bash
