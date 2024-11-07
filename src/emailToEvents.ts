@@ -1,5 +1,6 @@
 import { DataSource, Email, EmailSender, Event, PrismaClient } from "@prisma/client";
 import assert from "assert";
+import * as crypto from "crypto";
 import dedent from "dedent";
 import filenamify from "filenamify";
 import fs from "fs";
@@ -10,6 +11,7 @@ import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
+import { addTagsToEvent } from "./llm/eventToTags.js";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
 import { sendEmail } from "./mailer.js";
 import {
@@ -21,8 +23,6 @@ import {
   releaseLock,
   upsertEmbedding
 } from "./vectordb.js";
-import * as crypto from "crypto";
-import { addTagsToEvent } from "./llm/eventToTags.js";
 
 // Deprecated
 export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
@@ -69,7 +69,7 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
     const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
     // const seenUids = processedUids.map((email) => email.uid);
 
-    // Here are the emails that we need to fetch. 
+    // Here are the emails that we need to fetch.
     // I.e., the emails that have not been ignored or processed.
     const uids = allUids.filter((uid) => !seenUids.includes(uid));
     console.log(`Received ${uids.length} unseen mails in the past ${lookbackDays} days.`);
@@ -160,7 +160,7 @@ function fnv1aHash32(str: string): number {
     hash ^= str.charCodeAt(i);
     hash = (hash * 0x01000193) >>> 0; // Multiply by the FNV prime and ensure 32-bit overflow
   }
-  if (hash > 0x7FFFFFFF) {
+  if (hash > 0x7fffffff) {
     hash -= 0x100000000; // Wrap around using two's complement
   }
   return hash;
@@ -174,7 +174,7 @@ const generateUID = (email: ParsedMail): number => {
   }
   const uid = fnv1aHash32(messageId);
   return uid;
-}
+};
 
 /**
  * Given an email parsed by the mailparser library's simpleParser function,
@@ -192,33 +192,32 @@ export async function processNewEmail(email: ParsedMail) {
     const logger = new EmailProcessingLogger("sipb-mail-scripts");
     await logger.setup();
 
-
-    const result: ProcessEmailResult = await processMail(prisma,
+    const result: ProcessEmailResult = await processMail(
+      prisma,
       "sipb-mail-scripts",
       uid,
       email,
       processingTasks,
-      logger)
+      logger
+    ).then((value) => {
+      if (value !== "dormspam-but-root-not-in-db") {
+        const acryonyms: { [key in ProcessEmailResult]: string } = {
+          "malformed-email": "M",
+          "not-dormspam": "D",
+          "dormspam-but-root-not-in-db": "R",
+          "dormspam-but-not-event-by-gpt-3": "3",
+          "dormspam-but-not-event-by-gpt-4": "4",
+          "dormspam-processed-with-same-prompt": "P",
+          "dormspam-but-network-error": "N",
+          "dormspam-but-malformed-json": "J",
+          "dormspam-with-event": "E"
+        };
+        process.stdout.write(acryonyms[value]);
+      }
+      return value;
+    });
 
-      .then((value) => {
-        if (value !== "dormspam-but-root-not-in-db") {
-          const acryonyms: { [key in ProcessEmailResult]: string } = {
-            "malformed-email": "M",
-            "not-dormspam": "D",
-            "dormspam-but-root-not-in-db": "R",
-            "dormspam-but-not-event-by-gpt-3": "3",
-            "dormspam-but-not-event-by-gpt-4": "4",
-            "dormspam-processed-with-same-prompt": "P",
-            "dormspam-but-network-error": "N",
-            "dormspam-but-malformed-json": "J",
-            "dormspam-with-event": "E"
-          };
-          process.stdout.write(acryonyms[value]);
-        }
-        return value;
-      })
-
-    console.log(`\n New email was of type: ${result}`)
+    console.log(`\n New email was of type: ${result}`);
     if (result === "dormspam-with-event") {
       console.log("Email was successfully processed and event(s) were extracted. Adding tags...");
 
@@ -238,8 +237,7 @@ export async function processNewEmail(email: ParsedMail) {
         await updateEventTags(prisma, event, tags);
       }
     }
-  }
-  finally {
+  } finally {
     await prisma.$disconnect();
   }
 }
@@ -268,7 +266,7 @@ const updateEventTags = async (prisma: PrismaClient, event: Event, tags: Array<s
     where: { id: event.id },
     data: { tagsProcessedBy: CURRENT_MODEL_NAME }
   });
-}
+};
 
 type RelaxedParsedMail = Omit<ParsedMail, "attachments" | "headers" | "headerLines" | "from"> & {
   from?: Omit<AddressObject, "html" | "text"> | undefined;
@@ -391,28 +389,28 @@ async function processMail(
       `Sent by: ${senderName}<${senderAddress}>\n`;
     dormspamLogger.logBlock("meta", metaBlock);
 
-    if (parsed.inReplyTo !== undefined) {
-      const inReplyToEmail = await prisma.email.findUnique({
-        where: { messageId: parsed.inReplyTo }
-      });
-      if (inReplyToEmail === null) return "dormspam-but-root-not-in-db";
-      let root = inReplyToEmail;
-      const thread = [];
-      while (root.inReplyToId !== null) {
-        const nextRoot = await prisma.email.findUnique({ where: { messageId: root.inReplyToId } });
-        if (nextRoot === null) return "dormspam-but-root-not-in-db";
-        thread.push(`${root.inReplyToId} ${nextRoot.subject}`);
-        root = nextRoot;
-      }
-      dormspamLogger.logBlock("thread", thread.join("\n"));
-      rootMessageId = root.messageId;
-      inReplyTo = {
-        connect: { messageId: parsed.inReplyTo }
-      };
+    // if (parsed.inReplyTo !== undefined) {
+    //   const inReplyToEmail = await prisma.email.findUnique({
+    //     where: { messageId: parsed.inReplyTo }
+    //   });
+    //   if (inReplyToEmail === null) return "dormspam-but-root-not-in-db";
+    //   let root = inReplyToEmail;
+    //   const thread = [];
+    //   while (root.inReplyToId !== null) {
+    //     const nextRoot = await prisma.email.findUnique({ where: { messageId: root.inReplyToId } });
+    //     if (nextRoot === null) return "dormspam-but-root-not-in-db";
+    //     thread.push(`${root.inReplyToId} ${nextRoot.subject}`);
+    //     root = nextRoot;
+    //   }
+    //   dormspamLogger.logBlock("thread", thread.join("\n"));
+    //   rootMessageId = root.messageId;
+    //   inReplyTo = {
+    //     connect: { messageId: parsed.inReplyTo }
+    //   };
 
-      const prevDeferred = processingTasks.get(inReplyToEmail.messageId);
-      if (prevDeferred !== undefined) await prevDeferred.promise;
-    }
+    //   const prevDeferred = processingTasks.get(inReplyToEmail.messageId);
+    //   if (prevDeferred !== undefined) await prevDeferred.promise;
+    // }
 
     console.log("\nSubject", subject, "uid", uid);
 
@@ -512,7 +510,8 @@ async function processMail(
             }
             let mergeBlock =
               `New event: ${event.title} ${event.dateTime.toISOString()} ${event.location}\n` +
-              `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${otherEvent.location
+              `Old event: ${otherEvent.title} ${otherEvent.date.toISOString()} ${
+                otherEvent.location
               }\n`;
             const merged = mergeEvents(
               { ...event, date: event.dateTime, fromEmail: { receivedAt } },
@@ -601,9 +600,9 @@ async function sendReply(senderAddress: string, messageId: string, events: Event
   const paragraphs = events.map((event) => {
     const eventDate = event.date.toISOString().split("T")[0]; // YYYY-MM-DD
     const eventTime = event.date.toISOString().split("T")[1].slice(0, 5); // HH:MM
-  
+
     const formattedTime = isAllDay(event.date) ? eventDate : `${eventDate} ${eventTime}`;
-  
+
     return REPLY_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
       .replace("{EVENT_TIME}", formattedTime)
       .replace("{EVENT_LOCATION}", event.location);
@@ -626,7 +625,7 @@ function mergeEvents(
   const sameDate =
     ((isAllDay(event1.date) || isAllDay(event2.date)) &&
       Math.floor(event1.date.getTime() / 86400000) ===
-      Math.floor(event2.date.getTime() / 86400000)) ||
+        Math.floor(event2.date.getTime() / 86400000)) ||
     event1.date.getTime() === event2.date.getTime();
   if (!sameDate) return "unmergable-date";
   const sameLocation =
@@ -639,7 +638,7 @@ function mergeEvents(
 }
 
 class EmailProcessingLogger {
-  public constructor(private scrapedBy: string) { }
+  public constructor(private scrapedBy: string) {}
 
   public async setup() {
     await fs.promises.mkdir(`logs/${this.scrapedBy}`, { recursive: true });
@@ -666,7 +665,7 @@ class EmailProcessingLogger {
 }
 
 export class SpecificDormspamProcessingLogger {
-  public constructor(private fileName: string) { }
+  public constructor(private fileName: string) {}
 
   public logBlock(name: string, value: string) {
     const maxBannerLength = 100;
