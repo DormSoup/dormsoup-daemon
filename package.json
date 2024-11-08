@@ -14,7 +14,8 @@
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
     "oneOffTask": "tsx src/scripts/oneOffTask.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "create-test": "tsx src/scripts/createTestEvent.ts"
+    "create-test": "tsx src/scripts/createTestEvent.ts",
+    "testFunniestDormspam": "tsx src/scripts/testFunniestDormspam.ts"
   },
   "type": "module",
   "repository": {
