@@ -525,8 +525,8 @@ async function processMail(
               continue outer;
             }
             if (merged === "former") {
-              upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
               metadata.eventIds = metadata.eventIds.filter((id) => id !== eventId);
+              upsertEmbedding(event.title, embedding, { eventIds: [eventId] });
               if (metadata.eventIds.length === 0) deleteEmbedding(title);
               console.log("Event ", event, " updates previous event ", otherEvent);
               await prisma.event.update({
