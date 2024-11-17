@@ -1,6 +1,6 @@
 ## DormSoup Daemon
 
-The DormSoup Daemon is responsible for parsing received emails into events and tags. It receives emails from an Athena mailscript located at `/afs/sipb.mit.edu/project/dormdigest/mail_scripts`.
+The DormSoup Daemon is responsible for parsing received emails into events and tags (the frontend is in [another repo](https://github.com/DormSoup/dormsoup)). It receives emails from an Athena mailscript located at `/afs/sipb.mit.edu/project/dormdigest/mail_scripts`. 
 
 To test, send emails to `dormdigest@scripts.mit.edu`.
 
