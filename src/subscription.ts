@@ -162,16 +162,29 @@ async function composeEmail(
   screenshot?: string
 ) {
   const subject = "[Happening Tomorrow] " + events.map(({ title }) => title).join(", ");
-  const isAllDay = (date: Date) => date.getHours() === 0 && date.getMinutes() === 0;
+  const isAllDay = (date: Date) => date.getUTCHours() === 0 && date.getUTCMinutes() === 0;
+
   const paragraphs = events.map((event) => {
     return PUSH_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
-      .replace("{EVENT_TIME}", isAllDay(event.date) ? "All day" : event.date.toLocaleTimeString())
+      .replace(
+        "{EVENT_TIME}",
+        isAllDay(event.date)
+          ? "All day"
+          : event.date.toLocaleTimeString("en-US", {
+              timeZone: "UTC",
+              hour12: true,
+              hour: "2-digit",
+              minute: "2-digit"
+            })
+      )
       .replace("{EVENT_LOCATION}", event.location)
       .replace("{EVENT_TAGS}", event.tags.map(({ name }) => name).join(", "));
   });
+
   const html = screenshot
     ? PUSH_TEMPLATE.replace("{EVENTS}", `<img src="${screenshot}" style="width:100%" />`)
     : PUSH_TEMPLATE.replace("{EVENTS}", paragraphs.join("\n"));
+
   return { subject, html };
 }
 
