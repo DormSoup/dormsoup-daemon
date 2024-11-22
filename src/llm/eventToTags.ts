@@ -1,9 +1,8 @@
 import { Event } from "@prisma/client";
 import dedent from "dedent";
-import { ChatCompletionFunctions } from "openai";
 
-import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
-import { CHEAP_MODEL, MODEL } from "./utils.js";
+import { doCompletion } from "./emailToEvents.js";
+import { removeArtifacts } from "./utils.js";
 
 export const CURRENT_MODEL_NAME = "TAG-20241002";
 
@@ -58,21 +57,12 @@ const FORM_TAG_PROMPT =
 
   `;
 
-const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_form",
-  description: "Add form tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      form_tag: {
-        type: "string",
-        description: "The tag of the form of the event.",
-        enum: ACCEPTABLE_FORM_TAGS
-      }
-    },
-    require: ["form_tag"]
-  }
-};
+const EVENT_FORM_TAG_GRAMMAR = dedent`
+  form-tag ::= "\"Theater\"" | "\"Concert\"" | "\"Talk\"" | "\"Study Break\"" | "\"Movie Screening\"" | "\"Game\"" | "\"Sale\"" | "\"Rally\"" | "\"Dance\"" | "\"Party\"" | "\"Class Presentation\""
+  form-tag-kv ::= "\"form_tag\"" space ":" space form-tag
+  root ::= "{" space  (form-tag-kv )? "}" space
+  space ::= " "?
+`
 
 const ACCEPTABLE_CONTENT_TAGS = [
   "EECS",
@@ -107,26 +97,15 @@ const CONTENT_TAG_PROMPT =
   Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
 `;
 
-const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_content",
-  description: "Add content tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      content_tag_1: {
-        type: "string",
-        description: "The first tag of the content of the event. (not necessary)",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      },
-      content_tag_2: {
-        type: "string",
-        description: "The second tag of the content of the event (not necessary).",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      }
-    },
-    require: []
-  }
-};
+const EVENT_CONTENT_TAG_GRAMMAR = dedent`
+  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
+  content-tag-1-rest ::= ( "," space content-tag-2-kv )?
+  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
+  root ::= "{" space  (content-tag-1-kv content-tag-1-rest | content-tag-2-kv )? "}" space
+  space ::= " "?
+`
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -140,82 +119,27 @@ const AMENITIES_TAG_PROMPT =
   At the end of your reasoning, suggest a tag from ["Food", "Boba", "None"]. (Pick boba if the event provides both)
 `;
 
-const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "Food", "None"];
-
-const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_amenities",
-  description: "Add amenities tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      amenities_tag: {
-        type: "string",
-        description: "The tag of the amenities of the event (not necessary).",
-        enum: ACCEPTABLE_AMENITIES_TAGS
-      },
-      type_of_food: {
-        type: "string",
-        description: "What food the event provides, if tagged with 'Free Food'."
-      }
-    },
-    require: ["amenities_tag", "type_of_food"]
-  }
-};
+const EVENT_AMENITIES_TAG_GRAMMAR = dedent`
+  amenities-tag ::= "\"Free Food\"" | "\"Boba\"" | "\"Food\"" | "\"None\""
+  amenities-tag-kv ::= "\"amenities_tag\"" space ":" space amenities-tag
+  amenities-tag-rest ::= ( "," space type-of-food-kv )?
+  char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+  root ::= "{" space  (amenities-tag-kv amenities-tag-rest | type-of-food-kv )? "}" space
+  space ::= " "?
+  string ::= "\"" char* "\"" space
+  type-of-food-kv ::= "\"type_of_food\"" space ":" space string
+`
 
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
 
-  async function twoStagePrompt(
-    prompt: string,
-    fn: ChatCompletionFunctions,
-    allowed: string[]
-  ): Promise<string[]> {
-    const results: string[] = [];
-    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
-    const responseFirstStage = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text }
-      ],
-      temperature: 0
-    });
-    const responseSecondStage = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text },
-        { role: "assistant", content: responseFirstStage },
-        {
-          role: "user",
-          content:
-            "Remember, you can only pick from the tags given above. Now call the function with the tag of your conclusion:"
-        }
-      ],
-      functions: [fn],
-      function_call: { name: fn.name },
-      temperature: 0
-    });
-    if (process.env.DEBUG_MODE) {
-      console.log("----------Extracted Tags----------");
-      console.log(responseSecondStage);
-      console.log("----------Justification---------");
-      console.log(responseFirstStage);
-      console.log("----------End Response----------");
-    }
-    for (let property in responseSecondStage)
-      if (allowed.includes(responseSecondStage[property]))
-        results.push(responseSecondStage[property]);
-    return results;
-  }
-
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
-    twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    twoStagePrompt(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
-    twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
+    doCompletion(FORM_TAG_PROMPT, EVENT_FORM_TAG_GRAMMAR),
+    doCompletion(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_GRAMMAR),
+    doCompletion(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_GRAMMAR)
   ]);
 
-  let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
-  results = [...new Set(results)];
-  return results;
+  return [formTags, contentTags, amenitiesTags]
+    .flatMap(tags => Object.values(tags) as string[])
+    .filter(tag => tag !== "" && tag !== "N/A" && tag !== "None");
 }
