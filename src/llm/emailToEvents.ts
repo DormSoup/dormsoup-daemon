@@ -1,11 +1,7 @@
 import dedent from "dedent";
-import { ChatCompletionFunctions } from "openai";
 
 import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
 import {
-  CHEAP_MODEL,
-  MODEL,
-  createChatCompletionWithRetry,
   formatDateInET,
   removeArtifacts
 } from "./utils.js";
@@ -21,14 +17,14 @@ export interface Event {
 }
 
 const PROMPT_INTRO_HAS_EVENT_GRAMMAR = dedent`
-   boolean ::= ("true" | "false") space
-   char ::= [^"\\\\\\x7F\\x00-\\x1F] | [\\\\] (["\\\\bfnrt] | "u" [0-9a-fA-F]{4})
-   has-event-kv ::= "\\"has_event\\"" space ":" space boolean
-   has-event-rest ::= ( "," space rejected-reason-kv )?
-   rejected-reason-kv ::= "\\"rejected_reason\\"" space ":" space string
-   root ::= "{" space  (has-event-kv has-event-rest | rejected-reason-kv )? "}" space
-   space ::= | " " | "\\n" [ \\t]{0,20}
-   string ::= "\\"" char* "\\"" space`
+  boolean ::= ("true" | "false") space
+  char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+  has-event-kv ::= "\"has_event\"" space ":" space boolean
+  has-event-rest ::= ( "," space rejected-reason-kv )?
+  rejected-reason-kv ::= "\"rejected_reason\"" space ":" space string
+  root ::= "{" space  (has-event-kv has-event-rest) "}" space
+  space ::= " "?
+  string ::= "\"" char* "\"" space`
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
@@ -53,28 +49,24 @@ const PROMPT_INTRO_HAS_EVENT = dedent`
 `;
 
 const PROMPT_INTRO_GRAMMAR = dedent`
-   char ::= [^"\\\\\\x7F\\x00-\\x1F] | [\\\\] (["\\\\bfnrt] | "u" [0-9a-fA-F]{4})
+   char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
    events ::= "[" space (events-item ("," space events-item)*)? "]" space
-   events-item ::= "{" space  (events-item-title-kv events-item-title-rest | events-item-time-in-the-day-kv events-item-time-in-the-day-rest | events-item-date-time-kv events-item-date-time-rest | events-item-duration-kv events-item-duration-rest | events-item-location-kv events-item-location-rest | events-item-organizer-kv )? "}" space
-   events-item-date-time-kv ::= "\\"date_time\\"" space ":" space string
-   events-item-date-time-rest ::= ( "," space events-item-duration-kv )? events-item-duration-rest
-   events-item-duration-kv ::= "\\"duration\\"" space ":" space integer
-   events-item-duration-rest ::= ( "," space events-item-location-kv )? events-item-location-rest
-   events-item-location-kv ::= "\\"location\\"" space ":" space string
-   events-item-location-rest ::= ( "," space events-item-organizer-kv )?
-   events-item-organizer-kv ::= "\\"organizer\\"" space ":" space string
-   events-item-time-in-the-day-kv ::= "\\"time_in_the_day\\"" space ":" space string
+   events-item ::= "{" space events-item-title-kv "," space events-item-location-kv "," space events-item-organizer-kv ( "," space ( events-item-time-in-the-day-kv events-item-time-in-the-day-rest | events-item-date-time-kv events-item-date-time-rest | events-item-duration-kv ) )? "}" space
+   events-item-date-time-kv ::= "\"date_time\"" space ":" space string
+   events-item-date-time-rest ::= ( "," space events-item-duration-kv )?
+   events-item-duration-kv ::= "\"duration\"" space ":" space integer
+   events-item-location-kv ::= "\"location\"" space ":" space string
+   events-item-organizer-kv ::= "\"organizer\"" space ":" space string
+   events-item-time-in-the-day-kv ::= "\"time_in_the_day\"" space ":" space string
    events-item-time-in-the-day-rest ::= ( "," space events-item-date-time-kv )? events-item-date-time-rest
-   events-item-title-kv ::= "\\"title\\"" space ":" space string
-   events-item-title-rest ::= ( "," space events-item-time-in-the-day-kv )? events-item-time-in-the-day-rest
-   events-kv ::= "\\"events\\"" space ":" space events
+   events-item-title-kv ::= "\"title\"" space ":" space string
+   events-kv ::= "\"events\"" space ":" space events
    integer ::= ("-"? integral-part) space
    integral-part ::= [0] | [1-9] [0-9]{0,15}
-   rejected-reason-kv ::= "\\"rejected_reason\\"" space ":" space string
-   rejected-reason-rest ::= ( "," space events-kv )?
-   root ::= "{" space  (rejected-reason-kv rejected-reason-rest | events-kv )? "}" space
-   space ::= | " " | "\\n" [ \\t]{0,20}
-   string ::= "\\"" char* "\\"" space`
+   rejected-reason-kv ::= "\"rejected_reason\"" space ":" space string
+   root ::= "{" space rejected-reason-kv "," space events-kv "}" space
+   space ::= " "?
+   string ::= "\"" char* "\"" space`
 
 const PROMPT_INTRO = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
@@ -122,19 +114,19 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
-async function doCompletion(prompt: string, grammar: string): Promise<any> {
+export async function doCompletion(prompt: string, grammar: string): Promise<any> {
    try {
-      const response = await fetch(SIPB_LLMS_API_ENDPOINT, {
+      const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
          method: "POST",
          headers: {
-            "Authorization": `Bearer ${SIPB_LLMS_API_TOKEN}`,
+            "Authorization": `Bearer ${process.env.SIPB_LLMS_API_TOKEN}`,
             "Content-Type": `application/json`,
          },
          body: JSON.stringify({
             "messages": [
                {"role": "user", "content": prompt},
             ],
-            "stream": true,  // ?
+            "stream": false,  // ?
             "tokenize": true,
             "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
             "cache_prompt": false,
@@ -162,88 +154,16 @@ async function doCompletion(prompt: string, grammar: string): Promise<any> {
       });
 
       if (!response.ok)
-         throw new Error(`HTTP error: ${response.status}`);
+         throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
 
       const data = await response.json();
-      return data["choices"][0]["message"]["content"];
+      return JSON.parse(data["choices"][0]["message"]["content"]);
 
    } catch (error) {
       console.error(`Error with completion:`, error);
       throw error;
    }
 }
-
-const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
-  name: "set_email_has_event",
-  description: "Decide if the email has events",
-  parameters: {
-    type: "object",
-    properties: {
-      has_event: {
-        type: "boolean",
-        description: "Whether the email contains any event."
-      },
-      rejected_reason: {
-        type: "string",
-        description:
-          "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
-      }
-    },
-    require: ["has_event", "rejected_reason"]
-  }
-};
-
-const EXTRACT_FUNCTION: ChatCompletionFunctions = {
-  name: "insert_extracted_properties_from_email",
-  description: "Insert the extracted properties from the given email",
-  parameters: {
-    type: "object",
-    properties: {
-      rejected_reason: {
-        type: "string",
-        description:
-          "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
-      },
-      events: {
-        type: "array",
-        description:
-          "The events in the email. For example, shows and talks are events, senior sales and club position applications are not events.",
-        items: {
-          type: "object",
-          properties: {
-            title: {
-              type: "string",
-              description: "The title of the event (up to five words)"
-            },
-            time_in_the_day: {
-              type: "string",
-              description: "The start time in the day of the event (in HH:mm format)"
-            },
-            date_time: {
-              type: "string",
-              description:
-                "The date & time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor, the date received might help with your inference when the exact date is absent), ignore time_zone i.e. if emails says 6pm just use 6pm UTC"
-            },
-            duration: {
-              type: "integer",
-              description: "The estimated duration of the event (an integer, number of minutes)"
-            },
-            location: {
-              type: "string",
-              description: "The location of the event"
-            },
-            organizer: {
-              type: "string",
-              description: "The organization hosting the event"
-            }
-          },
-          required: ["title", "date", "location", "organizer"]
-        }
-      }
-    },
-    required: ["events", "rejected_reason"]
-  }
-};
 
 export type NonEmptyArray<T> = [T, ...T[]];
 
@@ -324,7 +244,7 @@ export async function extractFromEmail(
 
   try {
     const events = tryParseEventJSON(response);
-    if (events.length === 0 || response.rejected_reason)
+    if (events.length === 0 || response.rejected_reason != "N/A")
       return { status: "rejected-by-gpt-4", reason: response.rejected_reason };
     return {
       status: "admitted",
