@@ -106,6 +106,10 @@ const EVENT_CONTENT_TAG_GRAMMAR = dedent`
   root ::= "{" space  (content-tag-1-kv content-tag-1-rest | content-tag-2-kv )? "}" space
   space ::= " "?
 `
+const ACCEPTABLE_AMENITIES_TAGS = [
+  "Free Food",
+  "Boba"
+];
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -116,7 +120,9 @@ const AMENITIES_TAG_PROMPT =
 
   If you think the email does not contain food, snacks, or boba, say why the event is unlikely to provide any edible items.
 
-  At the end of your reasoning, suggest a tag from ["Food", "Boba", "None"]. (Pick boba if the event provides both)
+  At the end of your reasoning, suggest a tag from ["Free Food", "Boba", "None"]. (Pick boba if the event provides both)
+
+  Your answer must begin with: "Out of the the tags [${ACCEPTABLE_AMENITIES_TAGS.join(", ")}]..."
 `;
 
 const EVENT_AMENITIES_TAG_GRAMMAR = dedent`
@@ -133,13 +139,27 @@ const EVENT_AMENITIES_TAG_GRAMMAR = dedent`
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
 
+  const formTagPrompt = FORM_TAG_PROMPT.replace("{INSERT TITLE HERE}", event.title);
+  const contentTagPrompt = CONTENT_TAG_PROMPT.replace("{INSERT TITLE HERE}", event.title);
+  const amenitiesTagPrompt = AMENITIES_TAG_PROMPT.replace("{INSERT TITLE HERE}", event.title);
+
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
-    doCompletion(FORM_TAG_PROMPT, EVENT_FORM_TAG_GRAMMAR),
-    doCompletion(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_GRAMMAR),
-    doCompletion(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_GRAMMAR)
+    doCompletion(
+      `${formTagPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+      EVENT_FORM_TAG_GRAMMAR
+    ),
+    doCompletion(
+      `${contentTagPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+      EVENT_CONTENT_TAG_GRAMMAR
+    ),
+    doCompletion(
+      `${amenitiesTagPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+      EVENT_AMENITIES_TAG_GRAMMAR
+    ),
   ]);
 
+  const ACCEPTABLE_TAGS = ACCEPTABLE_FORM_TAGS.concat(ACCEPTABLE_CONTENT_TAGS).concat(ACCEPTABLE_AMENITIES_TAGS);
   return [formTags, contentTags, amenitiesTags]
     .flatMap(tags => Object.values(tags) as string[])
-    .filter(tag => tag !== "" && tag !== "N/A" && tag !== "None");
+    .filter((tag) => ACCEPTABLE_TAGS.includes(tag));
 }
