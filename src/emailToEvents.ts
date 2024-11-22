@@ -463,7 +463,11 @@ async function processMail(
       shouldSendReply = true;
     }
 
-    const result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
+    let result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
+    // Retry if failed initial attempt to extract event(s).
+    if (result.status !== "admitted") {
+      result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
+    }
 
     if (result.status === "error-malformed-json") return "dormspam-but-malformed-json";
     if (result.status === "error-openai-network") return "dormspam-but-network-error";
