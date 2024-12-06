@@ -107,26 +107,15 @@ const CONTENT_TAG_PROMPT =
   Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
 `;
 
-const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_content",
-  description: "Add content tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      content_tag_1: {
-        type: "string",
-        description: "The first tag of the content of the event. (not necessary)",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      },
-      content_tag_2: {
-        type: "string",
-        description: "The second tag of the content of the event (not necessary).",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      }
-    },
-    require: []
-  }
-};
+const EVENT_CONTENT_TAG_GRAMMAR = dedent`
+  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
+  content-tag-1-rest ::= ( "," space content-tag-2-kv )?
+  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
+  root ::= "{" space  (content-tag-1-kv content-tag-1-rest | content-tag-2-kv )? "}" space
+  space ::= " "?
+`
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -161,6 +150,57 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
     require: ["amenities_tag", "type_of_food"]
   }
 };
+
+export async function doCompletion(prompt: string, grammar: string): Promise<any> {
+  try {
+     const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
+        method: "POST",
+        headers: {
+           "Authorization": `Bearer ${process.env.SIPB_LLMS_API_TOKEN}`,
+           "Content-Type": `application/json`,
+        },
+        body: JSON.stringify({
+           "messages": [
+              {"role": "user", "content": prompt},
+           ],
+           "stream": false,
+           "tokenize": true,
+           "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
+           "cache_prompt": false,
+           "frequency_penalty": 0,
+           "grammar": grammar,
+           "image_data": [],
+           //"model": "mixtral",
+           "min_p": 0.05,
+           "mirostat": 0,
+           "mirostat_eta": 0.1,
+           "mirostat_tau": 5,
+           //"n_predict": 1000,
+           "n_probs": 0,
+           "presence_penalty": 0,
+           "repeat_last_n": 256,
+           "repeat_penalty": 1.18,
+           "seed": -1,
+           "slot_id": -1,
+           "temperature": 0.7,
+           "tfs_z": 1,
+           "top_k": 40,
+           "top_p": 0.95,
+           "typical_p": 1,
+        }),
+     });
+
+     if (!response.ok)
+        throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
+
+     const data = await response.json();
+     return JSON.parse(data["choices"][0]["message"]["content"]);
+
+  } catch (error) {
+     console.error(`Error with completion:`, error);
+     throw error;
+  }
+}
 
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
@@ -209,13 +249,23 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     return results;
   }
 
+  // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion
+  const contentTagPrompt = CONTENT_TAG_PROMPT.replace("{INSERT TITLE HERE}", event.title);
+
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    twoStagePrompt(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
+    doCompletion(
+      `${contentTagPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+      EVENT_CONTENT_TAG_GRAMMAR
+    ),
     twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
-  let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
+  const processedContentTags =
+    [contentTags].flatMap(tags => Object.values(tags) as string[])
+                 .filter((tag) => ACCEPTABLE_CONTENT_TAGS.includes(tag));
+
+  let results = formTags.concat(processedContentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
   results = [...new Set(results)];
   return results;
 }
