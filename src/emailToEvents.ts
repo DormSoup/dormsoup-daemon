@@ -23,6 +23,8 @@ import {
   releaseLock,
   upsertEmbedding
 } from "./vectordb.js";
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Deprecated
 export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
@@ -591,6 +593,9 @@ const REPLY_EVENT_TEMPLATE = dedent`
   `;
 
 async function sendReply(senderAddress: string, messageId: string, events: Event[]) {
+  if (process.env.DATABASE_URL == "postgresql://dormsoup:Hakken23@localhost:5432/dormsoup_dev"){
+    return;
+  }
   console.log("Sending reply to ", senderAddress);
   const subject = "[DormSoup] Your event is on DormSoup!";
   if (false && senderAddress !== "andiliu@mit.edu") {
