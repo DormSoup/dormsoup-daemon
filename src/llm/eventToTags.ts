@@ -107,27 +107,6 @@ const CONTENT_TAG_PROMPT =
   Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
 `;
 
-const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_content",
-  description: "Add content tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      content_tag_1: {
-        type: "string",
-        description: "The first tag of the content of the event. (not necessary)",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      },
-      content_tag_2: {
-        type: "string",
-        description: "The second tag of the content of the event (not necessary).",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      }
-    },
-    require: []
-  }
-};
-
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
   dedent`
@@ -161,6 +140,56 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
     require: ["amenities_tag", "type_of_food"]
   }
 };
+
+export async function doCompletion(prompt: string): Promise<any> {
+  try {
+     const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
+        method: "POST",
+        headers: {
+           "Authorization": `Bearer ${process.env.SIPB_LLMS_API_TOKEN}`,
+           "Content-Type": `application/json`,
+        },
+        body: JSON.stringify({
+           "messages": [
+              {"role": "user", "content": prompt},
+           ],
+           "stream": false,
+           "tokenize": true,
+           "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
+           "cache_prompt": false,
+           "frequency_penalty": 0,
+           "image_data": [],
+           //"model": "mixtral",
+           "min_p": 0.05,
+           "mirostat": 0,
+           "mirostat_eta": 0.1,
+           "mirostat_tau": 5,
+           //"n_predict": 1000,
+           "n_probs": 0,
+           "presence_penalty": 0,
+           "repeat_last_n": 256,
+           "repeat_penalty": 1.18,
+           "seed": -1,
+           "slot_id": -1,
+           "temperature": 0.7,
+           "tfs_z": 1,
+           "top_k": 40,
+           "top_p": 0.95,
+           "typical_p": 1,
+        }),
+     });
+
+     if (!response.ok)
+        throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
+
+     const data = await response.json();
+     return data["choices"][0]["message"]["content"];
+
+  } catch (error) {
+     console.error(`Error with completion:`, error);
+     throw error;
+  }
+}
 
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
@@ -209,9 +238,48 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     return results;
   }
 
+  async function twoStagePromptSIPB(
+    prompt: string,
+    allowed: string[]
+  ): Promise<string[]> {
+    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
+
+    const responseFirstStage = await doCompletion(
+      `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+    );
+
+    const responseSecondStage = JSON.parse(await doCompletion(
+      dedent`
+      ${responseFirstStage}
+
+      Return the chosen tags as a JSON object. The output should resemble the following:
+      ---------------- Sample Response (for formatting reference) --------------
+      {
+        "content-tag-1": "EECS",
+        "content-tag-2": "AI",
+      }
+      ---------------- End Sample Response (for formatting reference) --------------
+      `
+    ))
+
+    if (process.env.DEBUG_MODE) {
+      console.log("----------Extracted Tags----------");
+      console.log(responseSecondStage);
+      console.log("----------Justification---------");
+      console.log(responseFirstStage);
+      console.log("----------End Response----------");
+    }
+
+    const results: string[] = [];
+    for (let property in responseSecondStage)
+      if (allowed.includes(responseSecondStage[property]))
+        results.push(responseSecondStage[property])
+    return results
+  }
+
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    twoStagePrompt(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
+    twoStagePromptSIPB(CONTENT_TAG_PROMPT, ACCEPTABLE_CONTENT_TAGS),
     twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
