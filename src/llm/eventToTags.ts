@@ -89,9 +89,9 @@ const ACCEPTABLE_CONTENT_TAGS = [
 const CONTENT_TAG_PROMPT =
   PROMPT_INTRO +
   dedent`
-  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
+  The email body might contain multiple events, but you only need to identify the top content tag for the event above.
 
-  The event's content focuses on (choose at most two, don't have to choose any if not relevant):
+  The event's content focuses on (choose at most one, don't have to choose any if not relevant):
   - EECS | (Electrical Engineering and Computer Science)
   - AI
   - Math
@@ -106,16 +106,6 @@ const CONTENT_TAG_PROMPT =
 
   Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
 `;
-
-const EVENT_CONTENT_TAG_GRAMMAR = dedent`
-  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
-  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
-  content-tag-1-rest ::= ( "," space content-tag-2-kv )?
-  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
-  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
-  root ::= "{" space  (content-tag-1-kv content-tag-1-rest | content-tag-2-kv )? "}" space
-  space ::= " "?
-`
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -151,7 +141,7 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
-export async function doCompletion(prompt: string, grammar: string): Promise<any> {
+export async function doCompletion(prompt: string): Promise<any> {
   try {
      const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
         method: "POST",
@@ -168,7 +158,6 @@ export async function doCompletion(prompt: string, grammar: string): Promise<any
            "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
            "cache_prompt": false,
            "frequency_penalty": 0,
-           "grammar": grammar,
            "image_data": [],
            //"model": "mixtral",
            "min_p": 0.05,
@@ -194,7 +183,7 @@ export async function doCompletion(prompt: string, grammar: string): Promise<any
         throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
 
      const data = await response.json();
-     return JSON.parse(data["choices"][0]["message"]["content"]);
+     return data["choices"][0]["message"]["content"];
 
   } catch (error) {
      console.error(`Error with completion:`, error);
@@ -249,23 +238,42 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     return results;
   }
 
-  // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion
-  const contentTagPrompt = CONTENT_TAG_PROMPT.replace("{INSERT TITLE HERE}", event.title);
+  async function twoStagePromptSIPB(
+    prompt: string,
+    allowed: string[]
+  ): Promise<string[]> {
+    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
+
+    const responseFirstStage = await doCompletion(
+      `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+    );
+
+    const responseSecondStage = JSON.parse(await doCompletion(
+      `${responseFirstStage}\n\`\`\`\nReturn the chosen tag as a JSON object {"content": "tag"}.\n\`\`\`\n\n---------------- Response --------------\n`,
+    ))
+
+    if (process.env.DEBUG_MODE) {
+      console.log("----------Extracted Tags----------");
+      console.log(responseSecondStage);
+      console.log("----------Justification---------");
+      console.log(responseFirstStage);
+      console.log("----------End Response----------");
+    }
+
+    const results: string[] = [];
+    for (let property in responseSecondStage)
+      if (allowed.includes(responseSecondStage[property]))
+        results.push(responseSecondStage[property])
+    return results
+  }
 
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    doCompletion(
-      `${contentTagPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
-      EVENT_CONTENT_TAG_GRAMMAR
-    ),
+    twoStagePromptSIPB(CONTENT_TAG_PROMPT, ACCEPTABLE_CONTENT_TAGS),
     twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
-  const processedContentTags =
-    [contentTags].flatMap(tags => Object.values(tags) as string[])
-                 .filter((tag) => ACCEPTABLE_CONTENT_TAGS.includes(tag));
-
-  let results = formTags.concat(processedContentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
+  let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
   results = [...new Set(results)];
   return results;
 }
