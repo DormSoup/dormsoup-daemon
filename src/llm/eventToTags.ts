@@ -89,9 +89,9 @@ const ACCEPTABLE_CONTENT_TAGS = [
 const CONTENT_TAG_PROMPT =
   PROMPT_INTRO +
   dedent`
-  The email body might contain multiple events, but you only need to identify the top content tag for the event above.
+  The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
 
-  The event's content focuses on (choose at most one, don't have to choose any if not relevant):
+  The event's content focuses on (choose at most two, don't have to choose any if not relevant):
   - EECS | (Electrical Engineering and Computer Science)
   - AI
   - Math
@@ -249,7 +249,17 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     );
 
     const responseSecondStage = JSON.parse(await doCompletion(
-      `${responseFirstStage}\n\`\`\`\nReturn the chosen tag as a JSON object {"content": "tag"}.\n\`\`\`\n\n---------------- Response --------------\n`,
+      dedent`
+      ${responseFirstStage}
+
+      Return the chosen tags as a JSON object. The output should resemble the following:
+      ---------------- Sample Response (for formatting reference) --------------
+      {
+        "content-tag-1": "EECS",
+        "content-tag-2": "AI",
+      }
+      ---------------- End Sample Response (for formatting reference) --------------
+      `
     ))
 
     if (process.env.DEBUG_MODE) {
