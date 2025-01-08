@@ -48,24 +48,24 @@ export async function authenticate(): Promise<AuthResult> {
     // "offline_access"
   ];
 
-  try {
-    const accounts = await pca.getAllAccounts();
-    if (accounts.length > 0) {
-      // console.log("Attempting to acquire token silently for user", accounts[0].username);
-      const response = await pca.acquireTokenSilent({
-        account: accounts[0],
-        scopes
-      });
-      if (response !== null) {
-        // console.log("Acquired token silently for user", accounts[0].username);
-        return {
-          user: response.account!.username,
-          accessToken: response.accessToken,
-          expiresOn: response.expiresOn!.getTime()
-        };
-      }
-    }
-  } catch {}
+  // try {
+  //   const accounts = await pca.getAllAccounts();
+  //   if (accounts.length > 0) {
+  //     // console.log("Attempting to acquire token silently for user", accounts[0].username);
+  //     const response = await pca.acquireTokenSilent({
+  //       account: accounts[0],
+  //       scopes
+  //     });
+  //     if (response !== null) {
+  //       // console.log("Acquired token silently for user", accounts[0].username);
+  //       return {
+  //         user: response.account!.username,
+  //         accessToken: response.accessToken,
+  //         expiresOn: response.expiresOn!.getTime()
+  //       };
+  //     }
+  //   }
+  // } catch {}
   console.log("No cache or silent flow failed. Starting interactive flow...");
 
   const redirectUri = `https://localhost`;

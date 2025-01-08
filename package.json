@@ -57,6 +57,7 @@
     "crypto": "^1.0.1",
     "dedent": "^0.7.0",
     "dotenv": "^16.0.3",
+    "esbuild": "^0.24.0",
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "filenamify": "^6.0.0",
