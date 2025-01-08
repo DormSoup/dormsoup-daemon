@@ -29,13 +29,7 @@ which needs database credentials, but does not actually need you to be logged in
 
 #### Setting up a Development Database
 
-1. Start PostgreSQL if it's not running:
-
-```bash
-brew services start postgresql@14
-```
-
-2. In your `.env` file, make sure you're using the development database URL:
+1. In your `.env` file, make sure you're using the development database URL:
 
 ```env
 # Production DB (via SSH tunnel)
@@ -45,13 +39,27 @@ brew services start postgresql@14
 DATABASE_URL="postgresql://dormsoup:Hakken23@localhost:5432/dormsoup_dev"
 ```
 
-3. Create your local database table schema if you have none:
+2. Start PostgreSQL if it's not running:
+
+```bash
+brew install postgresql@14 # Install PostgreSQL if you don't have it installed
+brew services start postgresql@14
+```
+
+3. Create the database table and the user
+```bash
+createdb dormsoup_dev
+createuser -s dormsoup
+psql -d postgres -c "ALTER USER dormsoup WITH PASSWORD 'Hakken23';"
+```
+
+4. Generate your local database table schema if you have none:
 
 ```bash
 npx prisma migrate dev --name init
 ```
 
-4. Create and seed a development database:
+5. Create and seed a development database:
 
 ```bash
 npm run create-test
