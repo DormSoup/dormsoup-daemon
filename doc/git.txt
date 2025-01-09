@@ -1,0 +1,10 @@
+# create branch:
+git checkout -b feature/<feature-name>
+
+# ... work on feature ...
+git commit -m "Add <feature-name> feature"
+
+# push to my fork on github
+git push origin feature/<feature-name>
+
+

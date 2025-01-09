@@ -1,0 +1,58 @@
+1. Database Structure
+Friends Table: Create a friends table to store friend relationships.
+Columns: user_id, friend_id, status (e.g., pending, accepted).
+Ensure that user_id and friend_id pairs are unique.
+Consider indexing both user_id and friend_id for quick lookup.
+Friend Requests Table (optional): Alternatively, you could create a separate friend_requests table if you want to keep the friends table clean for only confirmed friendships.
+Event Participation:
+Ensure your events participation table (if it’s separate) links user_id with event_id.
+Optionally add a timestamp for when the user attended to track historical attendance.
+2. Backend Logic
+Sending Friend Requests:
+Check if a request already exists or if the users are already friends.
+Insert a new entry in friends with status = pending.
+Accepting Friend Requests:
+Update the status to accepted in the friends table once a request is approved.
+Consider adding a notification or confirmation message on acceptance.
+Rejecting/Blocking Requests:
+You may want a mechanism to delete or block requests (e.g., status = rejected), though this can be deferred until there’s demand.
+Listing Friends:
+Query all rows in the friends table where status = accepted for a given user_id.
+Mutual Friends:
+Write a query to check for mutual friends (e.g., user A’s friends intersected with user B’s friends).
+Friend Suggestions:
+Suggest friends based on:
+Mutual friends: Users with the most mutual friends with the current user.
+Shared events: Users who frequently attend events with the user.
+3. Event-Related Friend Interactions
+Seeing Friends at Events:
+Create a query that checks the events_participation table for which friends attended a specific event (e.g., user_id has friends who also have entries for event_id).
+Shared Events List:
+Provide a way to view past events attended with friends.
+For each event, list friends who attended alongside the user.
+Notifications for Friend Activity:
+Optionally, add notifications when a friend attends an event or RSVPs.
+Track whether a user has seen each notification to avoid redundant alerts.
+4. Frontend/UI Considerations
+Friend Requests UI:
+Display friend requests with options to accept or reject.
+Show a list of pending requests for each user.
+Friend List Display:
+Add a friend list page or component where users can see their friends and recent shared events.
+Include a search function to find friends easily.
+Event Attendance Visibility:
+Display friends attending an event when viewing event details.
+Add a simple count (e.g., “3 friends attending”) for an at-a-glance view.
+5. Performance and Indexing
+Frequent Queries:
+Optimize queries for retrieving friends, especially for larger user bases.
+Ensure indexes on user_id, friend_id, and event_id columns in relevant tables to speed up friendship and event attendance lookups.
+Caching:
+Consider caching common queries (e.g., friend lists, event attendees) to reduce load on the database.
+6. Testing and Error Handling
+Database Consistency:
+Test for scenarios where users try to add the same friend multiple times or accidentally send multiple requests.
+Edge Cases:
+Check cases like when a friend request is pending, one user deletes their account, or a friend attends a private event.
+Consider scenarios with multiple friend requests between the same users (e.g., user A requests user B and vice versa).
+

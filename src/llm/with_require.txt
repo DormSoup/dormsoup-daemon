@@ -1,0 +1,24 @@
+<event_amenities_tag_function> ::= "name" ":" <string> "," 
+                                  "description" ":" <string> "," 
+                                  "parameters" ":" <parameters_object>
+
+<parameters_object> ::= "{" "type" ":" '"object"' "," 
+                             "properties" ":" <properties_object> "," 
+                             "require" ":" "[" <required_properties> "]" "}"
+
+<properties_object> ::= "{" <amenities_tag_property> "," 
+                             <type_of_food_property> "}"
+
+<amenities_tag_property> ::= '"amenities_tag"' ":" <property_definition>
+<type_of_food_property> ::= '"type_of_food"' ":" <property_definition>
+
+<property_definition> ::= "{" "type" ":" '"string"' "," 
+                               "description" ":" <string> 
+                           ( "," '"enum"' ":" "[" <enum_values> "]" )? "}"
+
+<required_properties> ::= '"amenities_tag"' "," '"type_of_food"'
+
+<enum_values> ::= <string> | <string> "," <enum_values>
+
+<string> ::= '"' .* '"'
+

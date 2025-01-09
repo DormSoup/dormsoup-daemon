@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -15,25 +12,83 @@ enum DataSource {
   MANUAL_INPUT
 }
 
+// Defines confirmed friendships
+model Friend {
+  id          Int          @id @default(autoincrement())
+  userId      String       // User who has a friend (EmailSender ID)
+  friendId    String       // ID of the friend (EmailSender ID)
+  createdAt   DateTime     @default(now())
+  user        EmailSender  @relation("UserFriends", fields: [userId], references: [email], onDelete: Cascade)
+  friend      EmailSender  @relation("FriendUsers", fields: [friendId], references: [email], onDelete: Cascade)
+
+  @@unique([userId, friendId]) // Ensures unique friendships
+  @@index([userId])
+  @@index([friendId])
+}
+
+// Handles friend requests before they're confirmed
+model FriendRequest {
+  id          Int          @id @default(autoincrement())
+  requesterId String       // User who sent the request
+  recipientId String       // User who received the request
+  status      RequestStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  requester   EmailSender  @relation("Requesters", fields: [requesterId], references: [email], onDelete: Cascade)
+  recipient   EmailSender  @relation("Recipients", fields: [recipientId], references: [email], onDelete: Cascade)
+
+  @@unique([requesterId, recipientId]) // Ensures only one request at a time
+  @@index([requesterId])
+  @@index([recipientId])
+  @@index([status])
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED // #todo should we keep these or allow friend request again?
+}
+
 model Event {
-  id          Int        @id @default(autoincrement())
+  id          Int           @id @default(autoincrement())
   source      DataSource
-  // For dormspam, this is the email that the event was scraped from.
-  fromEmail   Email?     @relation(fields: [fromEmailId], references: [messageId])
+  fromEmail   Email?        @relation(fields: [fromEmailId], references: [messageId])
   fromEmailId String
   text        String
 
-  title     String
-  organizer String
-  date      DateTime
-  location  String
-  duration  Int      @default(60)
-  gcalId    String?
+  title       String
+  organizer   String
+  date        DateTime
+  location    String
+  duration    Int           @default(60)
+  gcalId      String?
 
-  liked EmailSender[]
-
-  tags            Tag[]
+  tags        Tag[]
   tagsProcessedBy String?
+  
+  attendees   EventAttendee[] // Links attendees to this event
+
+  @@index([date])
+  @@index([fromEmailId])
+}
+
+// Many-to-many table for associating users with events they've attended
+model EventAttendee {
+  id          Int          @id @default(autoincrement())
+  userId      String       // Attending user's ID (EmailSender ID)
+  eventId     Int          // Event being attended
+
+  user        EmailSender  @relation(fields: [userId], references: [email], onDelete: Cascade)
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  attendedAt  DateTime     @default(now()) // Timestamp of attendance
+  liked       Boolean      @default(false) // Track if user liked the event
+
+  @@unique([userId, eventId]) // Ensure unique attendance records
+  @@index([userId])
+  @@index([eventId])
+  @@index([liked])
 }
 
 model Tag {
@@ -44,12 +99,12 @@ model Tag {
   color    String
 
   events Event[]
+
+  @@index([category])
 }
 
 model Email {
-  // The account used to scrape the email, i.e., macy404@mit.edu
   scrapedBy String
-  // The uid of this email in the account's mailbox.
   uid       Int
 
   messageId   String  @id
@@ -58,38 +113,46 @@ model Email {
   replies     Email[] @relation("InReplyTo")
 
   receivedAt  DateTime
-  sender      EmailSender @relation(fields: [senderEmail], references: [email])
+  sender      EmailSender @relation(fields: [senderEmail], references: [email], onDelete: Cascade)
   senderEmail String
   subject     String
   body        String
 
   processedBody String?
 
-  // The name of the model-prompt used to process this event. E.g. "GPT3.5-prompt-0514"
-  // In this way when we get better models we can reprocess the same events with the new model.
   modelName String?
 
   event Event[]
 
   @@unique([scrapedBy, uid])
+  @@index([receivedAt])
+  @@index([senderEmail])
+  @@index([inReplyToId])
 }
 
-// Also record emails we looked at but ignored. This prevents us from looking at them again.
-// Stores less information for privacy reasons.
 model IgnoredEmail {
   scrapedBy  String
   uid        Int
   receivedAt DateTime
 
   @@unique([scrapedBy, uid])
+  @@index([receivedAt])
 }
 
-// Actually user.
+// Represents a user in the system
 model EmailSender {
-  email  String  @id
-  name   String?
-  emails Email[]
-  likes  Event[]
+  email         String          @id
+  name          String?
+  emails        Email[]
+  subscribed    Boolean         @default(false)
 
-  subscribed Boolean @default(false)
+  friends       Friend[]        @relation("UserFriends") // Users who are friends with this user
+  friendOf      Friend[]        @relation("FriendUsers") // Users who have this user as a friend
+
+  sentRequests  FriendRequest[] @relation("Requesters") // Friend requests sent by this user
+  receivedRequests FriendRequest[] @relation("Recipients") // Friend requests received by this user
+  
+  attendedEvents EventAttendee[] // Events this user has attended
+
+  @@index([subscribed])
 }

@@ -1,0 +1,19 @@
+{
+  name: "set_email_has_event",
+  description: "Decide if the email has events",
+  parameters: {
+    type: "object",
+    properties: {
+      has_event: {
+        type: "boolean",
+        description: "Whether the email contains any event."
+      },
+      rejected_reason: {
+        type: "string",
+        description:
+          "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
+      }
+    },
+    require: ["has_event", "rejected_reason"]
+  }
+}
