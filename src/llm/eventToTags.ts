@@ -102,10 +102,45 @@ const CONTENT_TAG_PROMPT =
   - Religion
   - Queer | (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
 
-  Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it (or why none applies).
+  First analyze each tag, then output ONLY a JSON object in this exact format:
 
-  Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
-`;
+  For two tags:
+  {
+    "content_tag_1": "TAG_NAME",
+    "content_tag_2": "TAG_NAME",
+    "justification": "Your reasoning for why these tags apply"
+  }
+
+  For one tag:
+  {
+    "content_tag_1": "TAG_NAME",
+    "justification": "Your reasoning for why this tag applies"
+  }
+
+  For no tags:
+  {}
+
+  Example output for an AI workshop event:
+  {
+    "content_tag_1": "AI",
+    "content_tag_2": "EECS",
+    "justification": "This event is primarily about artificial intelligence algorithms and their implementation in computer systems"
+  }
+
+  DO NOT include any other text before or after the JSON object.
+  `;
+
+const EVENT_CONTENT_TAG_GRAMMAR = dedent`
+  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
+  content-tag-1-rest ::= ( "," space content-tag-2-kv )? ("," space justification-kv)?
+  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
+  justification ::= "\\"" [^"]* "\\""
+  justification-kv ::= "\"justification\"" space ":" space justification
+  root ::= "{" space (content-tag-1-kv content-tag-1-rest | content-tag-2-kv ("," space justification-kv)?) "}" space
+  space ::= " "?
+`
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -141,7 +176,7 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
-export async function doCompletion(prompt: string): Promise<any> {
+export async function doCompletion(prompt: string, grammar: string): Promise<any> {
   try {
      const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
         method: "POST",
@@ -158,6 +193,7 @@ export async function doCompletion(prompt: string): Promise<any> {
            "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
            "cache_prompt": false,
            "frequency_penalty": 0,
+           "grammar": grammar,
            "image_data": [],
            //"model": "mixtral",
            "min_p": 0.05,
@@ -183,7 +219,7 @@ export async function doCompletion(prompt: string): Promise<any> {
         throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
 
      const data = await response.json();
-     return data["choices"][0]["message"]["content"];
+     return JSON.parse(data["choices"][0]["message"]["content"]);
 
   } catch (error) {
      console.error(`Error with completion:`, error);
@@ -238,48 +274,31 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     return results;
   }
 
-  async function twoStagePromptSIPB(
-    prompt: string,
-    allowed: string[]
-  ): Promise<string[]> {
+  async function extractTags(prompt: string, grammar: string, allowed: string[]): Promise<string[]> {
     const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
-
-    const responseFirstStage = await doCompletion(
+    const response = await doCompletion(
       `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
-    );
+      grammar
+    )
 
-    const responseSecondStage = JSON.parse(await doCompletion(
-      dedent`
-      ${responseFirstStage}
-
-      Return the chosen tags as a JSON object. The output should resemble the following:
-      ---------------- Sample Response (for formatting reference) --------------
-      {
-        "content-tag-1": "EECS",
-        "content-tag-2": "AI",
-      }
-      ---------------- End Sample Response (for formatting reference) --------------
-      `
-    ))
+    const tags = [response].flatMap(tags => Object.values(tags) as string[])
+                             .filter((tag) => allowed.includes(tag));
 
     if (process.env.DEBUG_MODE) {
       console.log("----------Extracted Tags----------");
-      console.log(responseSecondStage);
+      console.log(tags);
       console.log("----------Justification---------");
-      console.log(responseFirstStage);
+      console.log(response["justification"]);
       console.log("----------End Response----------");
     }
 
-    const results: string[] = [];
-    for (let property in responseSecondStage)
-      if (allowed.includes(responseSecondStage[property]))
-        results.push(responseSecondStage[property])
-    return results
+    return tags;
   }
 
+  // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion by invoking extractTags
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    twoStagePromptSIPB(CONTENT_TAG_PROMPT, ACCEPTABLE_CONTENT_TAGS),
+    extractTags(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_GRAMMAR, ACCEPTABLE_CONTENT_TAGS),
     twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
