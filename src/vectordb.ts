@@ -24,9 +24,16 @@ export async function loadEmbeddings(tryLoadFromBackup: boolean = true) {
     embeddingDB = JSON.parse(data);
   } catch (err) {
     if (!tryLoadFromBackup) throw err;
-    // Might be data corruption, restore from backup
-    await fs.copyFile(DB_PATH_BACKUP, DB_PATH);
-    await loadEmbeddings(false);
+    try {
+      // Attempt to restore from backup
+      await fs.copyFile(DB_PATH_BACKUP, DB_PATH);
+      await loadEmbeddings(false);
+    } catch (backupErr) {
+      // If both main file and backup are missing, create empty DB
+      console.log("No embeddings database found. Creating new empty database.");
+      embeddingDB = {};
+      await flushEmbeddings();
+    }
   }
 }
 
