@@ -38,8 +38,16 @@ export async function loadEmbeddings(tryLoadFromBackup: boolean = true) {
 }
 
 export async function flushEmbeddings() {
-  // Copy current file to backup
-  await fs.copyFile(DB_PATH, DB_PATH_BACKUP);
+  try {
+    // Check if original file exists before copying to backup
+    await fs.access(DB_PATH);
+    // If file exists, copy to backup
+    await fs.copyFile(DB_PATH, DB_PATH_BACKUP);
+  } catch (err) {
+    // File doesn't exist, skip backup step
+    console.log("No existing database file to backup");
+  }
+  // Write current data regardless
   await fs.writeFile(DB_PATH, JSON.stringify(embeddingDB));
 }
 
