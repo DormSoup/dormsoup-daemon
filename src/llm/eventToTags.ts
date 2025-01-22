@@ -92,7 +92,7 @@ const CONTENT_TAG_PROMPT =
   The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
 
   The event's content focuses on (choose at most two, don't have to choose any if not relevant):
-  - EECS | (Electrical Engineering and Computer Science)
+  - EECS | (Electrical Engineering and Computer Science, including topics in software, hardware, and related areas)
   - AI
   - Math
   - Biology
@@ -176,6 +176,15 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
   }
 };
 
+function extractAndSanitizeJsonContent(content: string): string {
+  const jsonMatch = content.match(/{.*}/s);
+  if (!jsonMatch) {
+    return '';
+  }
+
+  return jsonMatch[0].replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+};
+
 export async function doCompletion(prompt: string, grammar: string): Promise<any> {
   try {
      const response = await fetch(`${process.env.SIPB_LLMS_API_ENDPOINT}`, {
@@ -200,7 +209,7 @@ export async function doCompletion(prompt: string, grammar: string): Promise<any
            "mirostat": 0,
            "mirostat_eta": 0.1,
            "mirostat_tau": 5,
-           //"n_predict": 1000,
+           "n_predict": 1000,
            "n_probs": 0,
            "presence_penalty": 0,
            "repeat_last_n": 256,
@@ -219,7 +228,8 @@ export async function doCompletion(prompt: string, grammar: string): Promise<any
         throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
 
      const data = await response.json();
-     return JSON.parse(data["choices"][0]["message"]["content"]);
+     const content = data["choices"][0]["message"]["content"];
+     return JSON.parse(extractAndSanitizeJsonContent(content));
 
   } catch (error) {
      console.error(`Error with completion:`, error);
@@ -276,23 +286,28 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
 
   async function extractTags(prompt: string, grammar: string, allowed: string[]): Promise<string[]> {
     const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
-    const response = await doCompletion(
-      `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
-      grammar
-    )
+    try {
+      const response = await doCompletion(
+        `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+        grammar
+      )
 
-    const tags = [response].flatMap(tags => Object.values(tags) as string[])
-                             .filter((tag) => allowed.includes(tag));
+      const tags = [response].flatMap(tags => Object.values(tags) as string[])
+                               .filter((tag) => allowed.includes(tag));
 
-    if (process.env.DEBUG_MODE) {
-      console.log("----------Extracted Tags----------");
-      console.log(tags);
-      console.log("----------Justification---------");
-      console.log(response["justification"]);
-      console.log("----------End Response----------");
+      if (process.env.DEBUG_MODE) {
+        console.log("----------Extracted Tags----------");
+        console.log(tags);
+        console.log("----------Justification---------");
+        console.log(response["justification"]);
+        console.log("----------End Response----------");
+      }
+
+      return tags;
+    } catch (error) {
+      console.log(`Error with extracting tags for ${event.title}:`, error);
+      return [];
     }
-
-    return tags;
   }
 
   // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion by invoking extractTags
