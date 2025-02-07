@@ -2,6 +2,11 @@ import { PrismaClient } from "@prisma/client";
 
 import { CURRENT_MODEL_NAME, addTagsToEvent } from "./llm/eventToTags.js";
 
+/**
+ * Updates existing events' tags if they are in the last lookbackDays and haven't been tagged with
+ * the current tagging model
+ * @param lookbackDays how far to look back for events with outdated tags
+ */
 export default async function addTagsToEvents(lookbackDays: number = 60) {
   const prisma = new PrismaClient();
 

@@ -11,6 +11,7 @@ import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
 import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
+import { CURRENT_MODEL_NAME as CURRENT_TAG_MODEL_NAME } from "./llm/eventToTags.js";
 import { addTagsToEvent } from "./llm/eventToTags.js";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
 import { sendEmail } from "./mailer.js";
@@ -266,7 +267,7 @@ const updateEventTags = async (prisma: PrismaClient, event: Event, tags: Array<s
   }
   await prisma.event.update({
     where: { id: event.id },
-    data: { tagsProcessedBy: CURRENT_MODEL_NAME }
+    data: { tagsProcessedBy: CURRENT_TAG_MODEL_NAME }
   });
 };
 

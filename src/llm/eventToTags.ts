@@ -2,13 +2,17 @@ import { Event } from "@prisma/client";
 import dedent from "dedent";
 import { ChatCompletionFunctions } from "openai";
 
-import { createChatCompletionWithRetry, removeArtifacts, removeBase64 } from "./utils.js";
-import { CHEAP_MODEL, MODEL } from "./utils.js";
+import { createChatCompletionWithRetry, removeArtifacts } from "./utils.js";
+import { CHEAP_MODEL } from "./utils.js";
+import { doSIPBLLMsCompletion } from "./SIPBLLMsUtils.js";
 
-export const CURRENT_MODEL_NAME = "TAG-20241002";
+export const CURRENT_MODEL_NAME = "Mixtral-GPT1.0"
+interface SIPBLLMContentTag {
+    content_tag_1?: string;
+    content_tag_2?: string;
+    justification?: string;
+}
 
-
-// PLAYsentation (Class Presentation), Logar(Concert), Alien Conspiracy
 
 const PROMPT_INTRO = dedent`
   You are a campus event tagger. Your job is to reason whether given tags apply to a specific event.
@@ -92,7 +96,7 @@ const CONTENT_TAG_PROMPT =
   The email body might contain multiple events, but you only need to identify the (up to two) content tags for the event above.
 
   The event's content focuses on (choose at most two, don't have to choose any if not relevant):
-  - EECS | (Electrical Engineering and Computer Science)
+  - EECS | (Electrical Engineering and Computer Science, including topics in software, hardware, and related areas)
   - AI
   - Math
   - Biology
@@ -102,31 +106,45 @@ const CONTENT_TAG_PROMPT =
   - Religion
   - Queer | (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
 
-  Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it (or why none applies).
+  First analyze each tag, then output ONLY a JSON object in this exact format:
 
-  Your answer must begin with: "Out of the the tags [${ACCEPTABLE_CONTENT_TAGS.join(", ")}]..."
-`;
-
-const EVENT_CONTENT_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_content",
-  description: "Add content tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      content_tag_1: {
-        type: "string",
-        description: "The first tag of the content of the event. (not necessary)",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      },
-      content_tag_2: {
-        type: "string",
-        description: "The second tag of the content of the event (not necessary).",
-        enum: ACCEPTABLE_CONTENT_TAGS
-      }
-    },
-    require: []
+  For two tags:
+  {
+    "content_tag_1": "TAG_NAME",
+    "content_tag_2": "TAG_NAME",
+    "justification": "Your reasoning for why these tags apply"
   }
-};
+
+  For one tag:
+  {
+    "content_tag_1": "TAG_NAME",
+    "justification": "Your reasoning for why this tag applies"
+  }
+
+  For no tags:
+  {}
+
+  Example output for an AI workshop event:
+  {
+    "content_tag_1": "AI",
+    "content_tag_2": "EECS",
+    "justification": "This event is primarily about artificial intelligence algorithms and their implementation in computer systems"
+  }
+
+  DO NOT include any other text before or after the JSON object.
+  `;
+
+const EVENT_CONTENT_TAG_GRAMMAR = dedent`
+  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
+  content-tag-1-rest ::= ( "," space content-tag-2-kv )? ("," space justification-kv)?
+  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
+  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
+  justification ::= "\\"" [^"]* "\\""
+  justification-kv ::= "\"justification\"" space ":" space justification
+  root ::= "{" space (content-tag-1-kv content-tag-1-rest | content-tag-2-kv ("," space justification-kv)?) "}" space
+  space ::= " "?
+`
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -161,6 +179,7 @@ const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
     require: ["amenities_tag", "type_of_food"]
   }
 };
+
 
 export async function addTagsToEvent(event: Event): Promise<string[]> {
   const text = removeArtifacts(event.text);
@@ -209,9 +228,36 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
     return results;
   }
 
+  async function extractContentTags(prompt: string, grammar: string, allowed: string[]): Promise<string[]> {
+    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
+    try {
+      const response = await doSIPBLLMsCompletion(
+        `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
+        grammar
+      ) as SIPBLLMContentTag;
+
+      const tags: Array<string> = [response.content_tag_1, response.content_tag_2]
+      .filter((tag): tag is string => tag !== undefined && allowed.includes(tag));
+
+      if (process.env.DEBUG_MODE) {
+        console.log("----------Extracted Content Tags----------");
+        console.log(tags);
+        console.log("----------Justification---------");
+        console.log(response["justification"]);
+        console.log("----------End Response----------");
+      }
+
+      return tags;
+    } catch (error) {
+      console.log(`Error with extracting tags for ${event.title}:`, error);
+      return [];
+    }
+  }
+
+  // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion by invoking extractTags
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    twoStagePrompt(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_FUNCTION, ACCEPTABLE_CONTENT_TAGS),
+    extractContentTags(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_GRAMMAR, ACCEPTABLE_CONTENT_TAGS),
     twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
   ]);
 
