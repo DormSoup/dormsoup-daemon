@@ -5,19 +5,33 @@ import { debugEmailToEvents } from "./debugSIPBLLMEmailParsing";
 import fs from 'node:fs';
 
 async function main(): Promise<void> {
-    let filename: string;
+    let directory: string;
     // just in case
     if (process.argv[0].includes("node")) {
-        filename = process.argv[2];
+        directory = process.argv[2];
     } else {
-        filename = process.argv[1];
+        directory = process.argv[1];
     }
-    if (filename === undefined) {
-        console.error("Usage: npm run parseEmailFromFile filename")
-        console.error("filename may be the path to an .eml file, or it may be - to read from standard input")
+    if (directory === undefined) {
+        console.error("Usage: npm run parseEmailFromFile directory")
+        console.error("directory may be the path to a directory with .eml files")
         process.exit(1);
     }
-    const file = filename === "-" ? process.stdin.fd : filename;
+    if (!fs.existsSync(directory)) {
+        console.error(`Directory not found: ${directory}`);
+        process.exit(1);
+    }
+
+    const fileNames = fs.readdirSync(directory).filter(file => file.endsWith('.eml'));
+    for (const file of fileNames) {
+        const filePath = `${directory}/${file}`;
+        console.log(`Parsing ${filePath.slice(0, -4)}...\n`)
+        await eventFromEmailFile(filePath);
+        console.log("\n")
+    }
+}
+
+async function eventFromEmailFile(file: string){
     const contents = fs.readFileSync(file);
     const events = await debugEmailToEvents(contents);
     console.log("Done parsing event date/time!");

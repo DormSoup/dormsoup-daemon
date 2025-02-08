@@ -4,6 +4,7 @@ import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
 import { debugEmailToEvents } from "./debugEmailParsing.js";
+import { debugEmailToEvents as sipbDebugEmailParsing } from "./debugSIPBLLMEmailParsing.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -51,7 +52,7 @@ async function main(): Promise<void> {
       },
       { uid: true }
     );
-    debugEmailToEvents(message.source);
+    sipbDebugEmailParsing(message.source);
   } finally {
     lock.release();
     await client.logout();

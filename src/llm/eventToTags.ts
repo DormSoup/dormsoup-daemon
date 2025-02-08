@@ -4,7 +4,7 @@ import { ChatCompletionFunctions } from "openai";
 
 import { createChatCompletionWithRetry, removeArtifacts } from "./utils.js";
 import { CHEAP_MODEL } from "./utils.js";
-import { doSIPBLLMsCompletion } from "./SIPBLLMsUtils.js";
+import { doSIPBLLMsCompletionGrammar } from "./SIPBLLMsUtils.js";
 
 export const CURRENT_MODEL_NAME = "Mixtral-GPT1.0"
 interface SIPBLLMContentTag {
@@ -231,7 +231,7 @@ export async function addTagsToEvent(event: Event): Promise<string[]> {
   async function extractContentTags(prompt: string, grammar: string, allowed: string[]): Promise<string[]> {
     const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
     try {
-      const response = await doSIPBLLMsCompletion(
+      const response = await doSIPBLLMsCompletionGrammar(
         `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
         grammar
       ) as SIPBLLMContentTag;

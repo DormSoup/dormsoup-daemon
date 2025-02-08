@@ -10,6 +10,9 @@ import {
   removeArtifacts
 } from "./utils.js";
 
+import { JSONSchema7 } from "json-schema";
+import { doSIPBLLMsCompletionJSONSchema } from "./SIPBLLMsUtils.js";
+
 export const CURRENT_MODEL_NAME = "GPT-4o-0901";
 
 export interface Event {
@@ -20,7 +23,7 @@ export interface Event {
   duration: number;
 }
 
-const PROMPT_INTRO_HAS_EVENT = dedent`
+export const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
 
@@ -42,7 +45,7 @@ const PROMPT_INTRO_HAS_EVENT = dedent`
   Email text:
 `;
 
-const PROMPT_INTRO = dedent`
+export const PROMPT_INTRO = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
 
