@@ -34,6 +34,8 @@ model Event {
 
   tags            Tag[]
   tagsProcessedBy String?
+
+  comments Comment[]
 }
 
 model Tag {
@@ -92,4 +94,16 @@ model EmailSender {
   likes  Event[]
 
   subscribed Boolean @default(false)
+}
+
+model Comment {
+  id        Int       @id @default(autoincrement())
+  text      String
+  userName  String
+  createdAt DateTime  @default(now())
+  eventId   Int
+  parentId  Int? // For replies, null for top-level comments
+  event     Event     @relation(fields: [eventId], references: [id])
+  parent    Comment?  @relation("ReplyToParent", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("ReplyToParent")
 }
