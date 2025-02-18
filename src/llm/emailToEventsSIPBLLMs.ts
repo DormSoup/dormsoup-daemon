@@ -213,9 +213,13 @@ export async function extractFromEmailSIPBLLMs(
     }
   
     try {
-      const events = tryParseEventJSON(response);
-      if (events.length === 0)
-        return { status: "rejected-by-sipb-llms-step-2", reason: response.rejected_reason };
+      let events = tryParseEventJSON(response);
+      if (events.length === 0) {
+        response = await extractEvents(emailWithMetadata);
+        events = tryParseEventJSON(response);
+        if (events.length === 0)
+          return { status: "rejected-by-sipb-llms-step-2", reason: response.rejected_reason };
+      }
       return {
         status: "admitted",
         events: events as NonEmptyArray<Event>
