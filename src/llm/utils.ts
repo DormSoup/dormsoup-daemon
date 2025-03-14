@@ -25,29 +25,6 @@ const openai = new OpenAIApi(
   })
 );
 
-type LLMRateLimiter = {
-  rpmLimiter: RateLimiter;
-  tpmLimiter: RateLimiter;
-};
-
-const GPT_3_LIMITER: LLMRateLimiter = {
-  rpmLimiter: new RateLimiter({ tokensPerInterval: 3500, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 60000, interval: "minute" })
-};
-
-const GPT_4_LIMITER: LLMRateLimiter = {
-  rpmLimiter: new RateLimiter({ tokensPerInterval: 200, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 30000, interval: "minute" })
-};
-
-const MODEL_LIMITERS: { [modelName: string]: LLMRateLimiter } = {
-  "gpt-3.5-turbo-0613": GPT_3_LIMITER,
-  "gpt-3.5-turbo-16k-0613": GPT_3_LIMITER,
-  "gpt-4-0613": GPT_4_LIMITER,
-  CHEAP_MODEL: GPT_3_LIMITER,
-  MODEL: GPT_4_LIMITER
-};
-
 export function estimateTokens(text: string): number {
   const crudeEstimate = text.length / 4;
   const educatedEstimate = text.split(/\b/g).filter((word) => word.trim().length > 0).length / 0.75;
@@ -56,58 +33,6 @@ export function estimateTokens(text: string): number {
 
 function truncate(text: string, threshold: number = 100): string {
   return text.length < threshold ? text : text.substring(0, Math.max(0, threshold - 4)) + " ...";
-}
-
-export async function createChatCompletionWithRetry(
-  request: CreateChatCompletionRequest,
-  backOffTimeMs: number = 1000
-): Promise<any> {
-  let response;
-  const limiter = MODEL_LIMITERS[request.model];
-  const text = request.messages.map((msg) => msg.content).join("\n");
-  if (limiter !== undefined) {
-    const tokens = estimateTokens(text);
-    await limiter.rpmLimiter.removeTokens(1);
-    await limiter.tpmLimiter.removeTokens(tokens);
-  }
-
-  while (true) {
-    response = await openai.createChatCompletion(request, {
-      validateStatus: (status) => true
-    });
-    if (response.status === HttpStatus.OK) break;
-    if (
-      response.status === HttpStatus.TOO_MANY_REQUESTS ||
-      response.status === HttpStatus.SERVICE_UNAVAILABLE ||
-      response.status === HttpStatus.BAD_GATEWAY
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
-      backOffTimeMs = Math.min(20000, backOffTimeMs * 1.5);
-      console.warn(
-        `Request error, backing off in ${backOffTimeMs} ms. Request test ${truncate(text)}`,
-        response
-      );
-    } else if (response.status === HttpStatus.BAD_REQUEST) {
-      if (process.env.DEBUG_MODE) console.warn("Bad request: ", response);
-    } else {
-      console.log("Unexpected response: ", response);
-      throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
-    }
-  }
-  const completion = response.data.choices[0];
-  assert(
-    completion.finish_reason === "stop" || completion.finish_reason === "function_call",
-    "OpenAI API call failed"
-  );
-  if (completion.message?.content) return completion.message?.content;
-  let completionArguments = completion.message?.function_call?.arguments;
-  assert(completionArguments !== undefined);
-  try {
-    return JSON.parse(completionArguments);
-  } catch (error) {
-    console.log("JSON parse error from parsing ", completionArguments);
-    throw error;
-  }
 }
 
 export async function createEmbedding(text: string): Promise<number[]> {

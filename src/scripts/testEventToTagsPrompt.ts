@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import readline from "readline/promises";
 
-import { addTagsToEvent } from "../llm/eventToTags.js";
+import { addTagsToEvent } from "../llm/eventToTags";
 
 export async function main() {
   process.env.DEBUG_MODE = "true";

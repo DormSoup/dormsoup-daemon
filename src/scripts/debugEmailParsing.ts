@@ -3,7 +3,7 @@ import { convert } from "html-to-text";
 import { Source, simpleParser } from "mailparser";
 
 import { isDormspam } from "../emailToEvents.js";
-import { Event, ExtractFromEmailResult, extractFromEmail } from "../llm/emailToEvents.js";
+import { Event, ExtractFromEmailResult, extractFromEmail } from "../llm/emailToEvents";
 
 /**
  * Print some debugging information (whether the message was parsed as dormspam),

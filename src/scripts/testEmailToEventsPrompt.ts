@@ -4,7 +4,7 @@ import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
 import { debugEmailToEvents } from "./debugEmailParsing.js";
-import { debugEmailToEvents as sipbDebugEmailParsing } from "./debugSIPBLLMEmailParsing.js";
+import { debugEmailToEvents as sipbDebugEmailParsing } from "./debugEmailParsing";
 
 // Good test cases
 // Event with multiple times (same location): Ascension

@@ -10,9 +10,9 @@ import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 
 import { authenticate } from "./auth.js";
 import { Deferred } from "./deferred.js";
-import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents.js";
-import { CURRENT_MODEL_NAME as CURRENT_TAG_MODEL_NAME } from "./llm/eventToTags.js";
-import { addTagsToEvent } from "./llm/eventToTags.js";
+import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents";
+import { CURRENT_MODEL_NAME as CURRENT_TAG_MODEL_NAME } from "./llm/eventToTags";
+import { addTagsToEvent } from "./llm/eventToTags";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
 import { sendEmail } from "./mailer.js";
 import {
@@ -123,8 +123,8 @@ export default async function fetchEmailsAndExtractEvents(lookbackDays: number =
                 "malformed-email": "M",
                 "not-dormspam": "D",
                 "dormspam-but-root-not-in-db": "R",
-                "dormspam-but-not-event-by-gpt-3": "3",
-                "dormspam-but-not-event-by-gpt-4": "4",
+                "dormspam-but-not-event-by-sipb-llms": "-1",
+                "dormspam-but-not-event-by-sipb-llms-step-2": "-2",
                 "dormspam-processed-with-same-prompt": "P",
                 "dormspam-but-network-error": "N",
                 "dormspam-but-malformed-json": "J",
@@ -206,8 +206,8 @@ export async function processNewEmail(email: ParsedMail) {
           "malformed-email": "M",
           "not-dormspam": "D",
           "dormspam-but-root-not-in-db": "R",
-          "dormspam-but-not-event-by-gpt-3": "3",
-          "dormspam-but-not-event-by-gpt-4": "4",
+          "dormspam-but-not-event-by-sipb-llms": "-1",
+          "dormspam-but-not-event-by-sipb-llms-step-2": "-2",
           "dormspam-processed-with-same-prompt": "P",
           "dormspam-but-network-error": "N",
           "dormspam-but-malformed-json": "J",
@@ -319,8 +319,8 @@ type ProcessEmailResult =
   | "malformed-email"
   | "not-dormspam"
   | "dormspam-but-root-not-in-db"
-  | "dormspam-but-not-event-by-gpt-3"
-  | "dormspam-but-not-event-by-gpt-4"
+  | "dormspam-but-not-event-by-sipb-llms"
+  | "dormspam-but-not-event-by-sipb-llms-step-2"
   | "dormspam-processed-with-same-prompt"
   | "dormspam-but-network-error"
   | "dormspam-but-malformed-json"
@@ -465,14 +465,14 @@ async function processMail(
     const result = await extractFromEmail(subject, text, receivedAt, dormspamLogger);
 
     if (result.status === "error-malformed-json") return "dormspam-but-malformed-json";
-    if (result.status === "error-openai-network") return "dormspam-but-network-error";
-    if (result.status === "rejected-by-gpt-3") {
+    if (result.status === "error-sipb-llms-network") return "dormspam-but-network-error";
+    if (result.status === "rejected-by-sipb-llms") {
       await markProcessedByCurrentModel();
-      return "dormspam-but-not-event-by-gpt-3";
+      return "dormspam-but-not-event-by-sipb-llms";
     }
-    if (result.status === "rejected-by-gpt-4") {
+    if (result.status === "rejected-by-sipb-llms-step-2") {
       await markProcessedByCurrentModel();
-      return "dormspam-but-not-event-by-gpt-4";
+      return "dormspam-but-not-event-by-sipb-llms-step-2";
     }
 
     if (result.events.length > 0) console.log(`\nFound events in email: ${parsed.subject}`);

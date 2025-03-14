@@ -1,24 +1,21 @@
 import { assert } from "console";
-import { JSONSchema7 } from "json-schema";
+import { JSONSchema7, JSONSchema7TypeName } from "json-schema";
 
-const SIPB_LLMS_LLAMACPP_ENDPOINT = process.env.SIPB_LLMS_API_ENDPOINT;
-const SIPB_LLMS_LLAMACPP_API_TOKEN = process.env.SIPB_LLMS_API_TOKEN;
 const SIPB_LLMS_OLLAMA_ENDPOINT = process.env.SIPB_ENDPOINT_OLLAMA;
 const SIPB_LLMS_OWUI_API_TOKEN = process.env.SIPB_LLMS_OWUI_API_TOKEN
-assert(SIPB_LLMS_LLAMACPP_ENDPOINT !== undefined, "SIPB_LLMS_LLAMACPP_ENDPOINT environment variable must be set");
 assert(SIPB_LLMS_OLLAMA_ENDPOINT !== undefined, "SIPB_LLMS_OLLAMA_ENDPOINT environment variable must be set");
 assert(SIPB_LLMS_OWUI_API_TOKEN !== undefined, "SIPB_LLMS_OWUI_API_TOKEN environment variable must be set");
-assert(SIPB_LLMS_LLAMACPP_API_TOKEN !== undefined, "SIPB_LLMS_LLAMACPP_API_TOKEN environment variable must be set");
+
 interface SIPBLLMUsage {
   completion_tokens: number,
   prompt_tokens: number,
   total_tokens: number
 }
-interface SIPBLLMMessage {content: string; role: string};
+interface SIPBLLMChoiceMessage {content: string; role: string};
 interface SIPBLLMChoice {
   finish_reason: string;
   index: number;
-  message: SIPBLLMMessage
+  message: SIPBLLMChoiceMessage
 };
 interface SIPBLLMLlamaResponse {
   choices: Array<SIPBLLMChoice>;
@@ -41,8 +38,36 @@ interface SIPBLLMOllamaResponse {
     prompt_eval_duration: number;
     eval_count: number;
     eval_duration: number;
-  };
+};
 
+interface OllamaFormat extends JSONSchema7 {
+   type: "object";
+}
+
+interface SIPBLLMsRequestBody {
+   model: "deepseek-r1:32b" | "mixtral";
+   messages: SIPBLLMMessage[];
+   stream: boolean;
+   // Ollama endpoint
+   format?: OllamaFormat;
+}
+
+
+export type SIPBLLMMessage = {
+   role: "system" | "user" | "assistant";
+   content: string;
+};
+
+/**
+ * Extracts and sanitizes JSON content from a given string.
+ *
+ * This function searches for the first JSON object within the input string
+ * and returns it with necessary escape characters sanitized. If no JSON
+ * object is found, it returns an empty string.
+ *
+ * @param content - The string containing the JSON content to be extracted and sanitized.
+ * @returns The sanitized JSON content as a string, or an empty string if no JSON object is found.
+ */
 function extractAndSanitizeJsonContent(content: string): string {
   const jsonMatch = content.match(/{.*}/s);
   if (!jsonMatch) {
@@ -51,120 +76,91 @@ function extractAndSanitizeJsonContent(content: string): string {
   return jsonMatch[0].replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
 };
 
-export async function doSIPBLLMsCompletionGrammar(prompt: string, grammar: string): Promise<Record<string, any>> {
-  try {
-     const response = await fetch(`${SIPB_LLMS_LLAMACPP_ENDPOINT}`, {
-        method: "POST",
-        headers: {
-           "Authorization": `Bearer ${SIPB_LLMS_LLAMACPP_API_TOKEN}`,
-           "Content-Type": `application/json`,
-        },
-        body: JSON.stringify({
-           "messages": [
-              {"role": "user", "content": prompt},
-           ],
-           "stream": false,
-           "tokenize": true,
-           "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
-           "cache_prompt": false,
-           "frequency_penalty": 0,
-           "grammar": grammar,
-           "image_data": [],
-           //"model": "mixtral",
-           "min_p": 0.05,
-           "mirostat": 0,
-           "mirostat_eta": 0.1,
-           "mirostat_tau": 5,
-           "n_predict": 1000,
-           "n_probs": 0,
-           "presence_penalty": 0,
-           "repeat_last_n": 256,
-           "repeat_penalty": 1.18,
-           "seed": -1,
-           "slot_id": -1,
-           "temperature": 0.7,
-           "tfs_z": 1,
-           "top_k": 40,
-           "top_p": 0.95,
-           "typical_p": 1,
-        }),
-     });
 
-     if (!response.ok)
-        throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
-  
-     const data: SIPBLLMLlamaResponse = await response.json() as SIPBLLMLlamaResponse;
-     const content = data["choices"][0]["message"]["content"];
-     return JSON.parse(extractAndSanitizeJsonContent(content));
-
-  } catch (error) {
-     console.error(`Error with completion:`, error);
-     throw error;
-  }
+/**
+ * Sends a request with the given JSON schema to the specified SIPBLLMs Ollama model
+ * and returns the response.
+ *
+ * @param messages - An array of SIPBLLMMessage objects to be sent to the LLM model.
+ * @param jsonSchema - A JSON schema object defining the desired structure of the response.
+ * @param model - The LLM model to use, either "deepseek-r1:32b" or "mixtral".
+ * @returns A promise that resolves to the response by the model, a record of the desired structure.
+ * @throws Will throw an error if the HTTP request fails or the response cannot be parsed.
+ */
+async function SIPLLMsStructed(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral", jsonSchema: JSONSchema7, ): Promise<Record<string, any>> {
+   const body = {
+      "model": model,
+      "messages": messages,
+      "stream": false,
+      format: {type: "object", ...jsonSchema }
+   } as SIPBLLMsRequestBody;
+   return await SIPBLLMsAPICall(body) as Promise<Record<string, any>>;
 }
 
-export async function doSIPBLLMsCompletionJSONSchema(systemPrompt: string, userPrompt: string, jsonSchema: JSONSchema7, model: "deepseek-r1:32b" | "mixtral"): Promise<Record<string, any>> {
-    const endpoint = model == "deepseek-r1:32b" ? SIPB_LLMS_OLLAMA_ENDPOINT: SIPB_LLMS_LLAMACPP_ENDPOINT;
-    const token = model == "deepseek-r1:32b" ? SIPB_LLMS_OWUI_API_TOKEN: SIPB_LLMS_LLAMACPP_API_TOKEN
-    try {
-       const formatter = model=="deepseek-r1:32b" ? {"format": {"type": "object", ...jsonSchema }}:{"response_format": {"type": "json_object", "schema":jsonSchema }}
-       const body = {
-        "model": model,
-         "messages": [
-            {"role": "system", "content": systemPrompt},
-            {"role": "user", "content": userPrompt},
-         ],
-         "stream": false,
-        //  "tokenize": true,
-        //  "stop": ["</s>", "### User Message", "### Assistant", "### Prompt"],
-        //  "cache_prompt": false,
-        //  "frequency_penalty": 0,
-        //  "image_data": [],
-        //  "min_p": 0.05,
-        //  "mirostat": 0,
-        //  "mirostat_eta": 0.1,
-        //  "mirostat_tau": 5,
-        //  "n_predict": 1000,
-        //  "n_probs": 0,
-        //  "presence_penalty": 0,
-        //  "repeat_last_n": 256,
-        //  "repeat_penalty": 1.18,
-        //  "seed": -1,
-        //  "slot_id": -1,
-        //  "temperature": 0.7,
-        //  "tfs_z": 1,
-        //  "top_k": 40,
-        //  "top_p": 0.95,
-        //  "typical_p": 1,
-         ...formatter
-      }
+/**
+ * Makes an SIPBLLMs API call to the SIPBLLMs Ollama endpoint with the provided request body.
+ * 
+ * @param body - The request body to send in the API call.
+ * @returns A promise that resolves to the response by the model.
+ * @throws Will throw an error if the response is not ok or if there is an issue with the call.
+ */
+async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string, any> | string>{
+   try{
+      const response = await fetch(`${SIPB_LLMS_OLLAMA_ENDPOINT!}`, {
+         method: "POST",
+         headers: {
+            "Authorization": `Bearer ${SIPB_LLMS_OLLAMA_ENDPOINT}`,
+            "Content-Type": `application/json`,
+         },
+         body: JSON.stringify(body),
+      });
 
-       const response = await fetch(`${endpoint}`, {
-          method: "POST",
-          headers: {
-             "Authorization": `Bearer ${token}`,
-             "Content-Type": `application/json`,
-          },
-          body: JSON.stringify(body),
-       });
-  
-       if (!response.ok)
-          throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
-       let content;
-       if (model == "deepseek-r1:32b"){ 
-        const data: SIPBLLMOllamaResponse = await response.json() as SIPBLLMOllamaResponse;
-        content = data["message"]["content"];
-       }
-       else{
-        const data: SIPBLLMLlamaResponse = await response.json() as SIPBLLMLlamaResponse;
-        content = data["choices"][0]["message"]["content"];
-       }
+      if (!response.ok)
+         throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
+      const data: SIPBLLMOllamaResponse = await response.json() as SIPBLLMOllamaResponse;
+      const content = data["message"]["content"];
+      return JSON.parse(extractAndSanitizeJsonContent(content));
 
-       return JSON.parse(extractAndSanitizeJsonContent(content));
-  
-    } catch (error) {
-       console.error(`Error with completion:`, error);
-       throw error;
+   } catch (error) {
+      console.error(`Error with completion:`, error);
+      throw error;
+   }
+}
+
+/**
+ * Sends a request to the specified SIPB LLMs Ollama model with the provided messages
+ * and returns the response.
+ *
+ * @param messages - An array of SIPBLLMMessage objects to be sent to the LLM model.
+ * @param model - The model to be used for the request. Can be either "deepseek-r1:32b" or "mixtral".
+ * @returns A promise that resolves to the response by the model, a string.
+ * @throws Will throw an error if the HTTP request fails or if the response is not in the expected format.
+ */
+async function SIPBLLMsUnstructed(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral"): Promise<string> {
+   const body = {
+      "model": model,
+      "messages": messages,
+      "stream": false,
+   };
+   return await SIPBLLMsAPICall(body) as Promise<string>;
+}
+
+
+/**
+ * Sends a request to SIPBLLMs with the given JSON schema to the specified SIPB LLMs Ollama model
+ * and returns the response.
+ *
+ * @param messages - An array of SIPBLLMMessage objects to be processed.
+ * @param model - The model to use for processing the messages. Can be either "deepseek-r1:32b" or "mixtral".
+ * @param jsonSchema - An optional JSON schema to validate the output against.
+ * @returns A promise that resolves to a record of key-value pairs or a string, depending on whether a JSON schema is provided.
+ */
+export async function SIPBLLMs(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral", jsonSchema?: JSONSchema7): Promise<Record<string, any> | string> {
+    if (jsonSchema){
+      return SIPLLMsStructed(messages, model, jsonSchema);
+    }
+    else{
+      return SIPBLLMsUnstructed(messages, model);
     }
   }
   
