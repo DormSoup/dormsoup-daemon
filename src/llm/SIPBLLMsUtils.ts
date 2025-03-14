@@ -1,29 +1,14 @@
 import { assert } from "console";
-import { JSONSchema7, JSONSchema7TypeName } from "json-schema";
+import { JSONSchema7 } from "json-schema";
 
 const SIPB_LLMS_OLLAMA_ENDPOINT = process.env.SIPB_ENDPOINT_OLLAMA;
 const SIPB_LLMS_OWUI_API_TOKEN = process.env.SIPB_LLMS_OWUI_API_TOKEN
 assert(SIPB_LLMS_OLLAMA_ENDPOINT !== undefined, "SIPB_LLMS_OLLAMA_ENDPOINT environment variable must be set");
 assert(SIPB_LLMS_OWUI_API_TOKEN !== undefined, "SIPB_LLMS_OWUI_API_TOKEN environment variable must be set");
 
-interface SIPBLLMUsage {
-  completion_tokens: number,
-  prompt_tokens: number,
-  total_tokens: number
-}
-interface SIPBLLMChoiceMessage {content: string; role: string};
-interface SIPBLLMChoice {
-  finish_reason: string;
-  index: number;
-  message: SIPBLLMChoiceMessage
-};
-interface SIPBLLMLlamaResponse {
-  choices: Array<SIPBLLMChoice>;
-  created: number;
-  model: string;
-  object: string;
-  usage: SIPBLLMUsage;
-  id: string;
+export type SIPBLLMMessage = {
+   role: "system" | "user" | "assistant";
+   content: string;
 };
 
 interface SIPBLLMOllamaResponse {
@@ -51,12 +36,6 @@ interface SIPBLLMsRequestBody {
    // Ollama endpoint
    format?: OllamaFormat;
 }
-
-
-export type SIPBLLMMessage = {
-   role: "system" | "user" | "assistant";
-   content: string;
-};
 
 /**
  * Extracts and sanitizes JSON content from a given string.
@@ -89,9 +68,9 @@ function extractAndSanitizeJsonContent(content: string): string {
  */
 async function SIPLLMsStructed(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral", jsonSchema: JSONSchema7, ): Promise<Record<string, any>> {
    const body = {
-      "model": model,
-      "messages": messages,
-      "stream": false,
+      model: model,
+      messages: messages,
+      stream: false,
       format: {type: "object", ...jsonSchema }
    } as SIPBLLMsRequestBody;
    return await SIPBLLMsAPICall(body) as Promise<Record<string, any>>;
@@ -109,7 +88,7 @@ async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string
       const response = await fetch(`${SIPB_LLMS_OLLAMA_ENDPOINT!}`, {
          method: "POST",
          headers: {
-            "Authorization": `Bearer ${SIPB_LLMS_OLLAMA_ENDPOINT}`,
+            "Authorization": `Bearer ${SIPB_LLMS_OWUI_API_TOKEN}`,
             "Content-Type": `application/json`,
          },
          body: JSON.stringify(body),
@@ -119,7 +98,12 @@ async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string
          throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
       const data: SIPBLLMOllamaResponse = await response.json() as SIPBLLMOllamaResponse;
       const content = data["message"]["content"];
-      return JSON.parse(extractAndSanitizeJsonContent(content));
+      if (body.format){
+         return JSON.parse(extractAndSanitizeJsonContent(content));
+      }
+      else{
+         return content
+      }
 
    } catch (error) {
       console.error(`Error with completion:`, error);

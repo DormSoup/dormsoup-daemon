@@ -162,13 +162,11 @@ const CONTENT_TAG_PROMPT =
   {
     "content_tag_1": "TAG_NAME",
     "content_tag_2": "TAG_NAME",
-    "justification": "Your reasoning for why these tags apply"
   }
 
   For one tag:
   {
     "content_tag_1": "TAG_NAME",
-    "justification": "Your reasoning for why this tag applies"
   }
 
   For no tags:
@@ -178,7 +176,6 @@ const CONTENT_TAG_PROMPT =
   {
     "content_tag_1": "AI",
     "content_tag_2": "EECS",
-    "justification": "This event is primarily about artificial intelligence algorithms and their implementation in computer systems"
   }
 
   DO NOT include any other text before or after the JSON object.
@@ -253,7 +250,7 @@ async function twoStagePrompt(
       {
         role: "user",
         content:
-          "Remember, you can only pick from the tags given above. Now call the function with the tag of your conclusion:"
+          "Remember, you can only pick from the tags given above. Now respond with the tag(s) of your conclusion:"
       }
     ],
     'deepseek-r1:32b',

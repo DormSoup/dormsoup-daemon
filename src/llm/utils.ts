@@ -1,13 +1,8 @@
 import assert from "assert";
 import dotenv from "dotenv";
-import HttpStatus from "http-status-codes";
-import { RateLimiter } from "limiter-es6-compat";
-import { Configuration, CreateChatCompletionRequest, OpenAIApi } from "openai";
+import { Configuration, OpenAIApi } from "openai";
 
 dotenv.config();
-
-export const CHEAP_MODEL = "gpt-4o-mini-2024-07-18";
-export const MODEL = "gpt-4o-2024-08-06";
 
 export interface Event {
   title: string;
