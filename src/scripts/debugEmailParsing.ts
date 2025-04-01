@@ -17,9 +17,19 @@ export async function debugEmailToEvents(messageSource: Source): Promise<Event[]
     skipImageLinks: true,
     skipHtmlToText: false
   });
-  assert(parsed.html);
+  
+  // Get text content from either the text field or by converting HTML if available
+  let text: string;
+  if (parsed.text) {
+    text = parsed.text;
+  } else if (parsed.html) {
+    text = convert(parsed.html);
+  } else {
+    // If neither text nor HTML is available, use an empty string
+    text = "";
+    console.warn("Warning: Email has neither text nor HTML content");
+  }
 
-  const text = parsed.text ?? convert(parsed.html);
   console.log(text);
   console.log("Is this a dormspam email?", isDormspam(text));
   const result: ExtractFromEmailResult = await extractFromEmail(
