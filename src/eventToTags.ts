@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 
-import { CURRENT_MODEL_NAME, addTagsToEvent } from "./llm/eventToTags.js";
+import { CURRENT_MODEL_NAME, addTagsToEvent } from "./llm/eventToTags";
 
 /**
  * Updates existing events' tags if they are in the last lookbackDays and haven't been tagged with
