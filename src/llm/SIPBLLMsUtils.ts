@@ -6,13 +6,19 @@ const SIPB_LLMS_OWUI_API_TOKEN = process.env.SIPB_LLMS_OWUI_API_TOKEN
 assert(SIPB_LLMS_OLLAMA_ENDPOINT !== undefined, "SIPB_LLMS_OLLAMA_ENDPOINT environment variable must be set");
 assert(SIPB_LLMS_OWUI_API_TOKEN !== undefined, "SIPB_LLMS_OWUI_API_TOKEN environment variable must be set");
 
-export type SIPBLLMMessage = {
+export type SIPBLLMsChatMessage = {
    role: "system" | "user" | "assistant";
    content: string;
 };
 
-interface SIPBLLMOllamaResponse {
-    message: SIPBLLMMessage;
+export type SIPBLLMsChatModel = "deepseek-r1:32b" | "mixtral" | 'aya:35b';
+
+export type SIPBLLMsEmbeddingModel = 'nomic-embed-text:latest';
+
+type SIPBLLMsEmbeddingInput = Array<any> | Array<number> | Array<string> | string;
+
+interface SIPBLLMOllamaChatResponse {
+    message: SIPBLLMsChatMessage;
     created_at: string;
     model: string;
     done_reason: string;
@@ -25,13 +31,21 @@ interface SIPBLLMOllamaResponse {
     eval_duration: number;
 };
 
+type SIPBLLMOllamaEmbedAPIResponse = {
+  "model": string,
+  "embeddings": Array<Array<number>>,
+  "total_duration": number,
+  "load_duration": number,
+  "prompt_eval_count": number
+}
+
 interface OllamaFormat extends JSONSchema7 {
    type: "object";
 }
 
-interface SIPBLLMsRequestBody {
-   model: "deepseek-r1:32b" | "mixtral";
-   messages: SIPBLLMMessage[];
+interface SIPBLLMsChatRequestBody {
+   model: SIPBLLMsChatModel;
+   messages: SIPBLLMsChatMessage[];
    stream: boolean;
    // Ollama endpoint
    format?: OllamaFormat;
@@ -66,14 +80,14 @@ function extractAndSanitizeJsonContent(content: string): string {
  * @returns A promise that resolves to the response by the model, a record of the desired structure.
  * @throws Will throw an error if the HTTP request fails or the response cannot be parsed.
  */
-async function SIPLLMsStructed(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral", jsonSchema: JSONSchema7, ): Promise<Record<string, any>> {
+async function SIPLLMsStructed(messages: Array<SIPBLLMsChatMessage>, model: SIPBLLMsChatModel, jsonSchema: JSONSchema7, ): Promise<Record<string, any>> {
    const body = {
       model: model,
       messages: messages,
       stream: false,
       format: {type: "object", ...jsonSchema }
-   } as SIPBLLMsRequestBody;
-   return await SIPBLLMsAPICall(body) as Promise<Record<string, any>>;
+   } as SIPBLLMsChatRequestBody;
+   return await SIPBLLMsChatAPICall(body) as Promise<Record<string, any>>;
 }
 
 /**
@@ -83,9 +97,9 @@ async function SIPLLMsStructed(messages: Array<SIPBLLMMessage>, model: "deepseek
  * @returns A promise that resolves to the response by the model.
  * @throws Will throw an error if the response is not ok or if there is an issue with the call.
  */
-async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string, any> | string>{
+async function SIPBLLMsChatAPICall(body: SIPBLLMsChatRequestBody): Promise<Record<string, any> | string>{
    try{
-      const response = await fetch(`${SIPB_LLMS_OLLAMA_ENDPOINT!}`, {
+      const response = await fetch(`${SIPB_LLMS_OLLAMA_ENDPOINT!}`+'/api/chat', {
          method: "POST",
          headers: {
             "Authorization": `Bearer ${SIPB_LLMS_OWUI_API_TOKEN}`,
@@ -96,7 +110,7 @@ async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string
 
       if (!response.ok)
          throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
-      const data: SIPBLLMOllamaResponse = await response.json() as SIPBLLMOllamaResponse;
+      const data: SIPBLLMOllamaChatResponse = await response.json() as SIPBLLMOllamaChatResponse;
       const content = data["message"]["content"];
       if (body.format){
          return JSON.parse(extractAndSanitizeJsonContent(content));
@@ -120,13 +134,13 @@ async function SIPBLLMsAPICall(body: SIPBLLMsRequestBody): Promise<Record<string
  * @returns A promise that resolves to the response by the model, a string.
  * @throws Will throw an error if the HTTP request fails or if the response is not in the expected format.
  */
-async function SIPBLLMsUnstructed(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral"): Promise<string> {
+async function SIPBLLMsUnstructed(messages: Array<SIPBLLMsChatMessage>, model: SIPBLLMsChatModel): Promise<string> {
    const body = {
       "model": model,
       "messages": messages,
       "stream": false,
    };
-   return await SIPBLLMsAPICall(body) as Promise<string>;
+   return await SIPBLLMsChatAPICall(body) as Promise<string>;
 }
 
 
@@ -139,7 +153,7 @@ async function SIPBLLMsUnstructed(messages: Array<SIPBLLMMessage>, model: "deeps
  * @param jsonSchema - An optional JSON schema to validate the output against.
  * @returns A promise that resolves to a record of key-value pairs or a string, depending on whether a JSON schema is provided.
  */
-export async function SIPBLLMs(messages: Array<SIPBLLMMessage>, model: "deepseek-r1:32b" | "mixtral", jsonSchema?: JSONSchema7): Promise<Record<string, any> | string> {
+export async function SIPBLLMs(messages: Array<SIPBLLMsChatMessage>, model: SIPBLLMsChatModel, jsonSchema?: JSONSchema7): Promise<Record<string, any> | string> {
     if (jsonSchema){
       return SIPLLMsStructed(messages, model, jsonSchema);
     }
@@ -147,4 +161,34 @@ export async function SIPBLLMs(messages: Array<SIPBLLMMessage>, model: "deepseek
       return SIPBLLMsUnstructed(messages, model);
     }
   }
-  
+
+/**
+ * Generates an embedding for the provided input using the specified embedding model hosted by SIPBLLMs.
+ *
+ * @param model - The embedding model to use for generating the embedding.
+ * @param input - The input data to generate the embedding for. Can be an array of any type, an array of numbers, an array of strings, or a single string.
+ * @throws if an issue occurs while generating the embedding
+ * @returns A promise that resolves to the generated embedding.
+ */
+export async function generateEmbedding(model: SIPBLLMsEmbeddingModel, input: SIPBLLMsEmbeddingInput): Promise<number[]>{
+      try{
+         const response = await fetch(`${SIPB_LLMS_OLLAMA_ENDPOINT!}`+'/api/embed', {
+            method: "POST",
+            headers: {
+               "Authorization": `Bearer ${SIPB_LLMS_OWUI_API_TOKEN}`,
+               "Content-Type": `application/json`,
+            },
+            body: JSON.stringify({model, input}),
+         });
+         const data = await response.json() as SIPBLLMOllamaEmbedAPIResponse;
+
+         if (!response.ok){
+            throw new Error(`HTTP error: ${response.status}. Response: ${await response.text()}`);
+         }
+         return data.embeddings[0];
+      }
+      catch (error) {
+         console.error(`Error with embedding generation:`, error);
+         throw error;
+      }
+}

@@ -12,16 +12,38 @@ const PUSH_DATE_FILE = "./push.date";
 const THUMBNAIL_PORT = 3001;
 const FRONTEND_PATH = "../dormsoup";
 
-function roundToDate(date: Date | undefined) {
-  if (!date) return undefined;
+/**
+ * Rounds a given Date object down to the start of the day (midnight).
+ *
+ * @param date - The Date object to round.
+ * @returns A new Date object set to 00:00:00.000 of the same day as the input.
+ */
+function roundToDate(date: Date) {
   const newDate = new Date(date);
   newDate.setHours(0, 0, 0, 0);
   return newDate;
 }
 
+/**
+ * Pushes event notifications to all subscribed users via email.
+ *
+ * This function checks if a push has already been made today by comparing the current date
+ * with the most recent push date. If a push has already occurred, it exits early.
+ * Otherwise, it writes the current date as the new push date, retrieves all events for today,
+ * and, if there are any events, generates a thumbnail screenshot (if possible) and composes
+ * an email with the event information. It then fetches all subscribed users from the database
+ * and sends the composed email to each subscriber.
+ *
+ * Logs the process and skips sending if there are no events for the day.
+ *
+ * @async
+ * @returns {Promise<void>} Resolves when the push process is complete.
+ */
 export async function pushToSubscribers() {
   const today = new Date();
-  if (roundToDate(today)?.getTime() === roundToDate(await getMostRecentPushDate())?.getTime())
+  const lastPushDate = await getMostRecentPushDate();
+  // If today's push has already occurred, it exit early.
+  if (roundToDate(today).getTime() === roundToDate(lastPushDate).getTime())
     return;
   await fs.promises.writeFile(PUSH_DATE_FILE, today.toISOString());
 
@@ -49,6 +71,7 @@ export async function pushToSubscribers() {
   console.log(`Pushed to ${users.length} subscribers`);
 }
 
+// TODO: Comment this
 async function generateThumbnail(today: Date): Promise<string> {
   const options: Intl.DateTimeFormatOptions = {
     weekday: "short",
@@ -188,19 +211,29 @@ async function composeEmail(
   return { subject, html };
 }
 
-async function getMostRecentPushDate(): Promise<Date | undefined> {
-  // Returns undefined if the file doesn't exist
+/**
+ * Retrieves the last date we pushed the daily scoop to subscribers from the PUSH_DATE_FILE.
+ * If the PUSH_DATE_FILE exists, it reads its contents, trims any whitespace, and attempts to parse it as a `Date`.
+ * If the PUSH_DATE_FILE does not exist or the contents cannot be parsed as a valid date, 
+ * the function returns the date object representing January 1, 1970, 00:00:00 UTC.
+ * @returns {Promise<Date>} A promise that resolves to the last push date as a `Date` object,
+ * or January 1, 1970, 00:00:00 UTC if the file does not exist or the date is invalid.
+ */
+async function getMostRecentPushDate(): Promise<Date> {
+  // Return earliest date if the file doesn't exist
   if (
     !(await fs.promises
       .access(PUSH_DATE_FILE, fs.constants.F_OK)
       .then(() => true)
       .catch(() => false))
   )
-    return undefined;
+    {
+      return new Date(0);
+    }
   const dateContent = (await fs.promises.readFile(PUSH_DATE_FILE, "utf-8")).trim();
   try {
     return new Date(dateContent);
   } catch {
-    return undefined;
+    return new Date(0);
   }
 }

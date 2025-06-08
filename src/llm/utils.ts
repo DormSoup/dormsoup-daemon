@@ -1,6 +1,6 @@
 import assert from "assert";
 import dotenv from "dotenv";
-import { Configuration, OpenAIApi } from "openai";
+import { generateEmbedding } from "./SIPBLLMsUtils";
 
 dotenv.config();
 
@@ -10,15 +10,6 @@ export interface Event {
   location: string;
   organizer: string;
 }
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-assert(OPENAI_API_KEY !== undefined, "OPENAI_API_KEY environment variable must be set");
-
-const openai = new OpenAIApi(
-  new Configuration({
-    apiKey: OPENAI_API_KEY
-  })
-);
 
 export function estimateTokens(text: string): number {
   const crudeEstimate = text.length / 4;
@@ -31,11 +22,7 @@ function truncate(text: string, threshold: number = 100): string {
 }
 
 export async function createEmbedding(text: string): Promise<number[]> {
-  const response = await openai.createEmbedding({
-    model: "text-embedding-ada-002",
-    input: text
-  });
-  return response.data.data[0].embedding;
+  return generateEmbedding('nomic-embed-text:latest', text);
 }
 
 export function removeBase64(input: string) {

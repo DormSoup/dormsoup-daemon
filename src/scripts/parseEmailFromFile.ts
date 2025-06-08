@@ -1,7 +1,7 @@
 /// Parse an email from standard input, thus avoiding to authenticate to Outlook/Office365
 
 // import { addTagsToEvent } from "../llm/eventToTags";
-import { debugEmailToEvents } from "./debugEmailParsing";
+import { debugEmailToEvents } from "./utils";
 import fs from 'node:fs';
 
 async function main(): Promise<void> {

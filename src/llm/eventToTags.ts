@@ -1,10 +1,12 @@
 import { Event } from "@prisma/client";
 import dedent from "dedent";
 import { removeArtifacts } from "./utils.js";
-import { SIPBLLMs} from "./SIPBLLMsUtils.js";
+import { SIPBLLMs, SIPBLLMsChatModel} from "./SIPBLLMsUtils.js";
 import { JSONSchema7 } from "json-schema";
+import { JSONEvent } from "../scripts/utils.js";
 
-export const CURRENT_MODEL_NAME = "SIPBLLMs (DeepSeek-R1-32B)";
+export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = 'aya:35b';
+export const CURRENT_TAGGING_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_TAGGING_MODEL})`;
 
 type FormTag =
   | "Theater"
@@ -227,20 +229,20 @@ const AMENITIES_TAG_PROMPT =
  * @returns A promise that resolves to an array of extracted tags that are allowed.
  */
 async function twoStagePrompt(
-  event: Event,
+  title: string,
   text: string,
   prompt: string,
   schema: JSONSchema7,
   allowed: string[]
 ): Promise<string[]> {
   const results: string[] = [];
-  const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
+  const systemPrompt = prompt.replace("{INSERT TITLE HERE}", title);
   const responseFirstStage: string = await SIPBLLMs(
     [
       { role: "system", content: systemPrompt },
       { role: "user", content: text }
     ],
-    'deepseek-r1:32b'
+    'aya:35b'
   ) as string;
   const responseSecondStage: TagResponse  = await SIPBLLMs(
     [
@@ -253,7 +255,7 @@ async function twoStagePrompt(
           "Remember, you can only pick from the tags given above. Now respond with the tag(s) of your conclusion:"
       }
     ],
-    'deepseek-r1:32b',
+    'aya:35b',
     schema
   ) as TagResponse;
   if (process.env.DEBUG_MODE) {
@@ -285,12 +287,12 @@ async function twoStagePrompt(
  *
  * If `DEBUG_MODE` is enabled, the function logs the extracted tags and justifications to the console.
  */
-export async function addTagsToEvent(event: Event): Promise<string[]> {
+export async function addTagsToEvent(event: Event | JSONEvent): Promise<string[]> {
   const text = removeArtifacts(event.text);
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
-    twoStagePrompt(event, text, FORM_TAG_PROMPT, EVENT_FORM_TAG_OUTPUT_SCHEMA, ACCEPTABLE_FORM_TAGS),
-    twoStagePrompt(event, text, CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_OUTPUT_SCHEMA, ACCEPTABLE_CONTENT_TAGS),
-    twoStagePrompt(event, text, AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_OUTPUT_SCHEMA, ACCEPTABLE_AMENITIES_TAGS)
+    twoStagePrompt(event.title, text, FORM_TAG_PROMPT, EVENT_FORM_TAG_OUTPUT_SCHEMA, ACCEPTABLE_FORM_TAGS),
+    twoStagePrompt(event.title, text, CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_OUTPUT_SCHEMA, ACCEPTABLE_CONTENT_TAGS),
+    twoStagePrompt(event.title, text, AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_OUTPUT_SCHEMA, ACCEPTABLE_AMENITIES_TAGS)
   ]);
   let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
   results = [...new Set(results)];

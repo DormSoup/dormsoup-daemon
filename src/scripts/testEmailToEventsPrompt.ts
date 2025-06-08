@@ -3,8 +3,7 @@ import { ImapFlow } from "imapflow";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { debugEmailToEvents } from "./debugEmailParsing.js";
-import { debugEmailToEvents as sipbDebugEmailParsing } from "./debugEmailParsing";
+import { debugEmailToEvents } from "./utils.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -52,7 +51,7 @@ async function main(): Promise<void> {
       },
       { uid: true }
     );
-    sipbDebugEmailParsing(message.source);
+    debugEmailToEvents(message.source!);
   } finally {
     lock.release();
     await client.logout();

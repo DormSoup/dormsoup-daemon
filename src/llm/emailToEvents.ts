@@ -1,5 +1,5 @@
 import { JSONSchema7 } from "json-schema";
-import { SIPBLLMs } from "./SIPBLLMsUtils.js";
+import { SIPBLLMs, SIPBLLMsChatModel } from "./SIPBLLMsUtils.js";
 import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
 import { formatDateInET, removeArtifacts } from "./utils.js";
 import dedent from "dedent";
@@ -30,6 +30,9 @@ export interface Event {
   organizer: string;
   duration: number;
 }
+
+export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel = 'aya:35b';
+export const CURRENT_EVENT_MODEL_DISPLAY_NAME = "SIPBLLMs (DeepSeek-R1-32B)";
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
@@ -98,8 +101,6 @@ const PROMPT_INTRO = dedent`
 
   Email text:
 `;
-
-export const CURRENT_MODEL_NAME = "SIPBLLMs (DeepSeek-R1-32B)";
 
 const HAS_EVENT_PREDICATE_OUTPUT_SCHEMA: JSONSchema7 = {
     properties: {
@@ -232,27 +233,27 @@ async function isEvent(emailWithMetadata: string): Promise<HasEventResponse>{
       { role: "system", content: PROMPT_INTRO_HAS_EVENT },
       { role: "user", content: emailWithMetadata }
       ],
-      "deepseek-r1:32b",
+      CURRENT_SIPB_LLMS_EVENT_MODEL,
       HAS_EVENT_PREDICATE_OUTPUT_SCHEMA) as HasEventResponse;
   }
   
-  /**
-   * Extracts events from an email using SIPB LLMs.
-   *
-   * @param {string} emailWithMetadata - The email content along with its metadata.
-   * @returns {Promise<ExtractEventsResponse>} A promise that resolves to an ExtractEventsResponse object containing the extracted events.
-   */
-  async function extractEvents(emailWithMetadata: string): Promise<ExtractEventsResponse>{
-    return await SIPBLLMs(
-      [
-      { role: "system", content: PROMPT_INTRO },
-      { role: "user", content: emailWithMetadata }
-      ],
-     "deepseek-r1:32b", 
-     EXTRACT_EVENT_OUTPUT_SCHEMA) as ExtractEventsResponse;
-  }
+/**
+ * Extracts events from an email using SIPB LLMs.
+ *
+ * @param {string} emailWithMetadata - The email content along with its metadata.
+ * @returns {Promise<ExtractEventsResponse>} A promise that resolves to an ExtractEventsResponse object containing the extracted events.
+ */
+async function extractEvents(emailWithMetadata: string): Promise<ExtractEventsResponse>{
+  return await SIPBLLMs(
+    [
+    { role: "system", content: PROMPT_INTRO },
+    { role: "user", content: emailWithMetadata }
+    ],
+    CURRENT_SIPB_LLMS_EVENT_MODEL, 
+    EXTRACT_EVENT_OUTPUT_SCHEMA) as ExtractEventsResponse;
+}
 
-  /**
+/**
  * Extracts the event information from an email.
  *
  * @param subject the subject of the email

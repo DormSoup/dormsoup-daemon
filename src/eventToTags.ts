@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 
-import { CURRENT_MODEL_NAME, addTagsToEvent } from "./llm/eventToTags";
+import { CURRENT_TAGGING_MODEL_DISPLAY_NAME, addTagsToEvent } from "./llm/eventToTags";
 
 /**
  * Updates existing events' tags if they are in the last lookbackDays and haven't been tagged with
@@ -17,7 +17,7 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
       where: {
         date: { gte: since },
         OR: [
-          { tagsProcessedBy: { not: { equals: CURRENT_MODEL_NAME } } },
+          { tagsProcessedBy: { not: { equals: CURRENT_TAGGING_MODEL_DISPLAY_NAME } } },
           { tagsProcessedBy: { equals: null } }
         ]
       }
@@ -28,7 +28,7 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
         (async () => {
           await prisma.event.update({
             where: { id: event.id },
-            data: { tagsProcessedBy: CURRENT_MODEL_NAME + "_PROCESSING", tags: { set: [] } }
+            data: { tagsProcessedBy: CURRENT_TAGGING_MODEL_DISPLAY_NAME + "_PROCESSING", tags: { set: [] } }
           });
 
           const tags = await addTagsToEvent(event);
@@ -55,7 +55,7 @@ export default async function addTagsToEvents(lookbackDays: number = 60) {
 
           await prisma.event.update({
             where: { id: event.id },
-            data: { tagsProcessedBy: CURRENT_MODEL_NAME }
+            data: { tagsProcessedBy: CURRENT_TAGGING_MODEL_DISPLAY_NAME }
           });
         })()
       )

@@ -1,17 +1,12 @@
 import { DataSource, Email, EmailSender, Event, PrismaClient } from "@prisma/client";
-import assert from "assert";
-import * as crypto from "crypto";
 import dedent from "dedent";
 import filenamify from "filenamify";
 import fs from "fs";
 import { convert } from "html-to-text";
-import { ImapFlow } from "imapflow";
-import { AddressObject, ParsedMail, simpleParser } from "mailparser";
-
-import { authenticate } from "./auth.js";
+import { AddressObject, ParsedMail } from "mailparser";
 import { Deferred } from "./deferred.js";
-import { CURRENT_MODEL_NAME, extractFromEmail } from "./llm/emailToEvents";
-import { CURRENT_MODEL_NAME as CURRENT_TAG_MODEL_NAME } from "./llm/eventToTags";
+import { CURRENT_EVENT_MODEL_DISPLAY_NAME, extractFromEmail } from "./llm/emailToEvents";
+import { CURRENT_TAGGING_MODEL_DISPLAY_NAME } from "./llm/eventToTags";
 import { addTagsToEvent } from "./llm/eventToTags";
 import { createEmbedding, removeArtifacts } from "./llm/utils.js";
 import { sendEmail } from "./mailer.js";
@@ -24,136 +19,6 @@ import {
   releaseLock,
   upsertEmbedding
 } from "./vectordb.js";
-
-// Deprecated
-export default async function fetchEmailsAndExtractEvents(lookbackDays: number = 60) {
-  const auth = await authenticate();
-  const client = new ImapFlow({
-    host: "outlook.office365.com",
-    port: 993,
-    secure: true,
-    auth,
-    logger: false
-  });
-
-  const prisma = new PrismaClient();
-
-  await client.connect();
-
-  let lock = await client.getMailboxLock("INBOX");
-  try {
-    assert(typeof client.mailbox !== "boolean");
-    // console.log(`Mailbox has ${client.mailbox.exists} messages`);
-    const since = new Date();
-    since.setDate(new Date().getDate() - lookbackDays);
-    const allUids = await client.search({ since: since }, { uid: true });
-    // minUid: what is the earliest email received after `since`?
-    const minUid = Math.min(...allUids);
-    const byUserAndRecent = {
-      scrapedBy: auth.user,
-      uid: { gte: minUid }
-    };
-
-    // ---------------- CHECKING IF THE EMAIL HAS BEEN PROCESSED OR IGNORED BEFORE ----------------
-    // ignoredUids: emails that cannot be dormspams because they don't contain the keywords.
-    const ignoredUids = await prisma.ignoredEmail.findMany({
-      select: { uid: true },
-      where: byUserAndRecent
-    });
-    // processedUids: emails that have been processed by the current model.
-    const processedUids = await prisma.email.findMany({
-      select: { uid: true },
-      where: { ...byUserAndRecent, modelName: { equals: CURRENT_MODEL_NAME } }
-    });
-
-    // seenUids: no need to look at these emails again. saves bandwidth and tokens.
-    const seenUids = ignoredUids.concat(processedUids).map((email) => email.uid);
-    // const seenUids = processedUids.map((email) => email.uid);
-
-    // Here are the emails that we need to fetch.
-    // I.e., the emails that have not been ignored or processed.
-    const uids = allUids.filter((uid) => !seenUids.includes(uid));
-    console.log(`Received ${uids.length} unseen mails in the past ${lookbackDays} days.`);
-    if (uids.length === 0) return;
-
-    // We need not fetch these processed emails to save bandwidth.
-    const fetchedEmails = await prisma.email.findMany({
-      where: { ...byUserAndRecent, modelName: { not: CURRENT_MODEL_NAME } },
-      include: { sender: true },
-      orderBy: { receivedAt: "asc" }
-    });
-    const fetchedUids = fetchedEmails.map((email) => email.uid);
-
-    const processingTasks = new Map<string, Deferred<void>>();
-    const mailProcessors: Promise<ProcessEmailResult>[] = [];
-    const logger = new EmailProcessingLogger(auth.user);
-    await logger.setup();
-
-    // Have to ensure the property: For emails A & B, if A.receivedAt <= B.receivedAt, then
-    // the promise processMail(..., A) must be created NO LATER THAN processMail(..., B).
-    mailProcessors.push(
-      ...fetchedEmails.map((email) =>
-        processMail(
-          prisma,
-          auth.user,
-          email.uid,
-          emailToRelaxedParsedMail(email),
-          processingTasks,
-          logger
-        ).then((value) => {
-          process.stdout.write((value as string).at(-1)!!);
-          return value;
-        })
-      )
-    );
-
-    for await (let message of client.fetch(
-      uids.filter((uid) => !fetchedUids.includes(uid)),
-      { uid: true, envelope: true, source: true },
-      { uid: true, changedSince: 0n }
-    )) {
-      mailProcessors.push(
-        simpleParser(message.source)
-          .then((parsed) =>
-            processMail(prisma, auth.user, message.uid, parsed, processingTasks, logger)
-          )
-          .then((value) => {
-            if (value !== "dormspam-but-root-not-in-db") {
-              const acryonyms: { [key in ProcessEmailResult]: string } = {
-                "malformed-email": "M",
-                "not-dormspam": "D",
-                "dormspam-but-root-not-in-db": "R",
-                "dormspam-but-not-event-by-sipb-llms": "-1",
-                "dormspam-but-not-event-by-sipb-llms-step-2": "-2",
-                "dormspam-processed-with-same-prompt": "P",
-                "dormspam-but-network-error": "N",
-                "dormspam-but-malformed-json": "J",
-                "dormspam-with-event": "E"
-              };
-              process.stdout.write(acryonyms[value]);
-            }
-            return value;
-          })
-      );
-    }
-
-    const results = await Promise.allSettled(mailProcessors);
-    const resultsByType = new Map<ProcessEmailResult, number>();
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        const x = resultsByType.get(result.value);
-        if (x !== undefined) resultsByType.set(result.value, x + 1);
-        else resultsByType.set(result.value, 1);
-      }
-    }
-    console.log("");
-    for (const [key, value] of resultsByType) console.log(`${key}: ${value}`);
-  } finally {
-    lock.release();
-    await prisma.$disconnect();
-    await client.logout();
-  }
-}
 
 function fnv1aHash32(str: string): number {
   let hash = 0x811c9dc5; // 32-bit FNV-1a initial hash value
@@ -265,7 +130,7 @@ const updateEventTags = async (prisma: PrismaClient, event: Event, tags: Array<s
   }
   await prisma.event.update({
     where: { id: event.id },
-    data: { tagsProcessedBy: CURRENT_TAG_MODEL_NAME }
+    data: { tagsProcessedBy: CURRENT_TAGGING_MODEL_DISPLAY_NAME }
   });
 };
 
@@ -330,7 +195,7 @@ async function processMail(
   prisma: PrismaClient,
   scrapedBy: string,
   uid: number,
-  parsed: RelaxedParsedMail,
+  parsed: ParsedMail,
   processingTasks: Map<string, Deferred<void>>,
   logger: EmailProcessingLogger
 ): Promise<ProcessEmailResult> {
@@ -430,14 +295,14 @@ async function processMail(
         subject,
         body: html ? html : parsed.text ?? "",
         receivedAt,
-        modelName: CURRENT_MODEL_NAME + "_PROCESSING",
+        modelName: CURRENT_EVENT_MODEL_DISPLAY_NAME + "_PROCESSING",
         inReplyTo
       },
-      update: { modelName: CURRENT_MODEL_NAME + "_PROCESSING" }
+      update: { modelName: CURRENT_EVENT_MODEL_DISPLAY_NAME + "_PROCESSING" }
     });
 
     const markProcessedByCurrentModel = async () => {
-      await prisma.email.update({ where: { messageId }, data: { modelName: CURRENT_MODEL_NAME } });
+      await prisma.email.update({ where: { messageId }, data: { modelName: CURRENT_EVENT_MODEL_DISPLAY_NAME } });
     };
 
     const existing = await prisma.event.findFirst({
@@ -450,7 +315,7 @@ async function processMail(
     if (existing !== null) {
       // The existing email has already been processed with the current model, do nothing.
       // if (receivedAt < existing.latestUpdateTime) return;
-      if (existing.fromEmail?.modelName === CURRENT_MODEL_NAME) {
+      if (existing.fromEmail?.modelName === CURRENT_EVENT_MODEL_DISPLAY_NAME) {
         await markProcessedByCurrentModel();
         return "dormspam-processed-with-same-prompt";
       }

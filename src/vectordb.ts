@@ -30,6 +30,13 @@ export async function loadEmbeddings(tryLoadFromBackup: boolean = true) {
   }
 }
 
+/**
+ * Creates a backup of the current database file by copying it to the backup location.
+ * Writes the current state of the `embeddingDB` object to the main database file in JSON format.
+ *
+ * @returns {Promise<void>} A promise that resolves when the flush operation is complete.
+ * @throws Will throw an error if the file copy or write operations fail.
+ */
 export async function flushEmbeddings() {
   // Copy current file to backup
   await fs.copyFile(DB_PATH, DB_PATH_BACKUP);
