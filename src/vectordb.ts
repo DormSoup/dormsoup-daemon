@@ -18,6 +18,7 @@ let embeddingDB: EmbeddingDB = {};
 const DB_PATH = "./embeddings.json";
 const DB_PATH_BACKUP = "./embeddings.json.backup";
 
+// TODO: Comment this
 export async function loadEmbeddings(tryLoadFromBackup: boolean = true) {
   try {
     const data = await fs.readFile(DB_PATH, "utf-8");
@@ -56,16 +57,19 @@ export function upsertEmbedding(key: string, embeddings: number[], metadata: Emb
   }
 }
 
+// TODO: Comment this
 export function deleteEmbedding(key: string) {
   delete embeddingDB[key];
 }
 
+// TODO: Comment this
 export function getEmbedding(
   key: string
 ): { embeddings: number[]; metadata: EmbeddingMetadata } | undefined {
   return embeddingDB[key];
 }
 
+// TODO: Comment this
 export function getDistance(embeddings1: number[], embeddings2: number[]) {
   let distance = 0;
   for (let i = 0; i < embeddings1.length; i++) {
@@ -74,6 +78,7 @@ export function getDistance(embeddings1: number[], embeddings2: number[]) {
   return distance;
 }
 
+// TODO: Comment this
 export function getKNearestNeighbors(target: number[], k: number = 1) {
   const distances: [string, number][] = [];
   for (const key of Object.keys(embeddingDB)) {
@@ -86,6 +91,7 @@ export function getKNearestNeighbors(target: number[], k: number = 1) {
 
 const waiters: (Deferred<void> | undefined)[] = [];
 
+// TODO: Comment this
 export async function acquireLock() {
   if (waiters.length == 0) {
     waiters.push(undefined);
@@ -97,6 +103,7 @@ export async function acquireLock() {
   await deferred;
 }
 
+// TODO: Comment this
 export function releaseLock() {
   // waiters.length == 0: only I am using it and nobody else is waiting
   if (waiters[0] === undefined) waiters.shift();

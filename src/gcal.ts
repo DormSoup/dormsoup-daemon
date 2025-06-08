@@ -14,6 +14,7 @@ const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 const TOKEN_PATH = path.join(process.cwd(), "token.json");
 const CREDENTIALS_PATH = path.join(process.cwd(), "credentials.json");
 
+// TODO: Comment this
 async function loadSavedCredentialsIfExist(): Promise<OAuth2Client | null> {
   try {
     const content = await fs.readFile(TOKEN_PATH);
@@ -24,6 +25,7 @@ async function loadSavedCredentialsIfExist(): Promise<OAuth2Client | null> {
   }
 }
 
+// TODO: Comment this
 async function saveCredentials(client: OAuth2Client) {
   const content = await fs.readFile(CREDENTIALS_PATH);
   const keys = JSON.parse(content.toString());
@@ -37,6 +39,7 @@ async function saveCredentials(client: OAuth2Client) {
   await fs.writeFile(TOKEN_PATH, payload);
 }
 
+// TODO: Comment this
 async function authorize(): Promise<OAuth2Client> {
   const savedClient = await loadSavedCredentialsIfExist();
   if (savedClient) return savedClient as any;
@@ -51,6 +54,7 @@ async function authorize(): Promise<OAuth2Client> {
   return authedClient;
 }
 
+// TODO: Comment this
 export async function syncGCal() {
   console.log("Preparing to sync GCal...");
 
@@ -132,6 +136,7 @@ export async function syncGCal() {
   }
 }
 
+// TODO: Comment this
 export async function getAllEventsCreatedRecently(today: Date) {
   const prisma = new PrismaClient();
   try {

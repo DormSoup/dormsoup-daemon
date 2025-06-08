@@ -14,6 +14,7 @@ import { removeArtifacts } from "../llm/utils.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
+// TODO: Comment this
 async function main(): Promise<void> {
     const emailsWithEventsPath = 'testEmails/emails_with_events.json';
     const emailsWithoutEventsPath = 'testEmails/emails_without_events.json';

@@ -4,6 +4,7 @@
 import { debugEmailToEvents } from "./utils";
 import fs from 'node:fs';
 
+// TODO: Comment this
 async function main(): Promise<void> {
     let filename: string;
     // just in case

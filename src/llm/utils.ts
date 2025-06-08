@@ -11,20 +11,24 @@ export interface Event {
   organizer: string;
 }
 
+// TODO: Comment this
 export function estimateTokens(text: string): number {
   const crudeEstimate = text.length / 4;
   const educatedEstimate = text.split(/\b/g).filter((word) => word.trim().length > 0).length / 0.75;
   return Math.ceil(Math.max(crudeEstimate, educatedEstimate));
 }
 
+// TODO: Comment this
 function truncate(text: string, threshold: number = 100): string {
   return text.length < threshold ? text : text.substring(0, Math.max(0, threshold - 4)) + " ...";
 }
 
+// TODO: Comment this
 export async function createEmbedding(text: string): Promise<number[]> {
   return generateEmbedding('nomic-embed-text:latest', text);
 }
 
+// TODO: Comment this
 export function removeBase64(input: string) {
   const startKeyword = ";base64,";
   const start = input.indexOf(";base64,");
@@ -41,22 +45,27 @@ export function removeBase64(input: string) {
   return removeBase64(input.slice(0, start) + input.slice(end));
 }
 
+// TODO: Comment this
 export function removeImageTags(input: string) {
   return input.replace(/\[(cid|data):[^\]]+\]/g, "");
 }
 
+// TODO: Comment this
 export function removeConsecutiveLinebreaks(input: string) {
   return input.replace(/(\n\s*){3,}/g, "\n\n");
 }
 
+// TODO: Comment this
 export function removeURL(input: string) {
   return input.replace(/(https?:\/\/[^\s]+)|(\[https?:\/\/[^\s]+\])/g, "");
 }
 
+// TODO: Comment this
 export function removeArtifacts(input: string) {
   return removeConsecutiveLinebreaks(removeImageTags(removeURL(removeBase64(input))));
 }
 
+// TODO: Comment this
 export function formatDateInET(date: Date) {
   return date.toLocaleString("en-US", {
     year: "numeric",

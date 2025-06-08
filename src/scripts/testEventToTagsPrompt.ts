@@ -3,6 +3,7 @@ import readline from "readline/promises";
 
 import { addTagsToEvent } from "../llm/eventToTags";
 
+// TODO: Comment this
 export async function main() {
   process.env.DEBUG_MODE = "true";
   const prisma = new PrismaClient();

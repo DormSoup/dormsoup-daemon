@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 const IP = process.env.REMOTE_IP ?? "localhost";
-
+// TODO: Comment this
 async function relay(): Promise<void> {
     const [privateKey, publicKey] = await Promise.all([
         fs.promises.readFile("selfsigned.key", "utf8"),

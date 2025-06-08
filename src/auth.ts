@@ -18,6 +18,7 @@ import https from "https";
 
 type AuthResult = { user: string; accessToken: string; expiresOn: number };
 
+// TODO: Comment this
 export async function authenticate(): Promise<AuthResult> {
   const cachePath = ".token.json";
   const persistentConfig: IPersistenceConfiguration = {

@@ -17,6 +17,7 @@ import {
   upsertEmbedding
 } from "../vectordb.js";
 
+// TODO: Comment this
 export async function main() {
   dotenv.config();
   // const prisma = new PrismaClient();

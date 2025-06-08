@@ -21,6 +21,7 @@ type SendEmailOptions = {
   inReplyTo?: string;
 } & ({ text: string } | { html: string });
 
+// TODO: Comment this
 export async function sendEmail(opts: SendEmailOptions): Promise<void> {
   await DORMSOUP_SMTP_TRANSPORT.sendMail({ ...opts, from: DORMSOUP_SENDER });
 }

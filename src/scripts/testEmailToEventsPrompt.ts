@@ -16,6 +16,7 @@ import { debugEmailToEvents } from "./utils.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
+// Comment this
 async function main(): Promise<void> {
   process.env.DEBUG_MODE = "true";
   const auth = await authenticate();

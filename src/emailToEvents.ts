@@ -20,6 +20,7 @@ import {
   upsertEmbedding
 } from "./vectordb.js";
 
+// TODO: Comment this
 function fnv1aHash32(str: string): number {
   let hash = 0x811c9dc5; // 32-bit FNV-1a initial hash value
   for (let i = 0; i < str.length; i++) {
@@ -32,6 +33,7 @@ function fnv1aHash32(str: string): number {
   return hash;
 }
 
+// TODO: Comment this
 const generateUID = (email: ParsedMail): number => {
   // Getting rid of the "<" and ">" characters in the message ID.
   const messageId = email.messageId?.replace("<", "").replace(">", "") ?? "";
@@ -108,6 +110,7 @@ export async function processNewEmail(email: ParsedMail) {
   }
 }
 
+// TODO: Comment this
 const updateEventTags = async (prisma: PrismaClient, event: Event, tags: Array<string>) => {
   console.log(`Event "${event.title}" has tags: ${tags}`);
   for (const tag of tags) {
@@ -157,10 +160,12 @@ const isDormspamRegex = new RegExp(
   "ui"
 );
 
+// TODO: Comment this
 export function isDormspam(text: string): boolean {
   return isDormspamRegex.test(text) && !text.includes("dormsoup-ignore");
 }
 
+// TODO: Comment this
 function emailToRelaxedParsedMail(email: Email & { sender: EmailSender }): RelaxedParsedMail {
   return {
     messageId: email.messageId,
@@ -191,6 +196,7 @@ type ProcessEmailResult =
   | "dormspam-but-malformed-json"
   | "dormspam-with-event";
 
+// TODO: Comment this
 async function processMail(
   prisma: PrismaClient,
   scrapedBy: string,
@@ -456,6 +462,7 @@ const REPLY_EVENT_TEMPLATE = dedent`
   </p>
   `;
 
+// TODO: Comment this
 async function sendReply(senderAddress: string, messageId: string, events: Event[]) {
   console.log("Sending reply to ", senderAddress);
   const subject = "[DormSoup] Your event is on DormSoup!";
@@ -482,6 +489,7 @@ async function sendReply(senderAddress: string, messageId: string, events: Event
   });
 }
 
+// TODO: Comment this
 function mergeEvents(
   event1: { date: Date; location: string; fromEmail: null | { receivedAt: Date } },
   event2: { date: Date; location: string; fromEmail: null | { receivedAt: Date } }
@@ -503,6 +511,7 @@ function mergeEvents(
   return event1.fromEmail!.receivedAt <= event2.fromEmail!.receivedAt ? "latter" : "former";
 }
 
+// TODO: Comment this
 class EmailProcessingLogger {
   public constructor(private scrapedBy: string) {}
 
@@ -530,6 +539,7 @@ class EmailProcessingLogger {
   }
 }
 
+// TODO: Comment this
 export class SpecificDormspamProcessingLogger {
   public constructor(private fileName: string) {}
 

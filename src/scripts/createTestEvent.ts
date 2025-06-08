@@ -4,6 +4,7 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+// TODO: Comment this
 async function validateDevDatabase() {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {

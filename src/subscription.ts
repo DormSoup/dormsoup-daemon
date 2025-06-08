@@ -5,7 +5,6 @@ import fs from "fs";
 import jimp from "jimp";
 import { resolve } from "path";
 import puppeteer from "puppeteer";
-
 import { sendEmail } from "./mailer.js";
 
 const PUSH_DATE_FILE = "./push.date";
@@ -126,6 +125,7 @@ async function generateThumbnail(today: Date): Promise<string> {
   }
 }
 
+// TODO: Comment this
 export async function getAllEvents(today: Date) {
   const prisma = new PrismaClient();
   try {
@@ -179,6 +179,7 @@ const PUSH_EVENT_TEMPLATE = dedent`
   </p>
   `;
 
+// TODO: Comment this
 async function composeEmail(
   today: Date,
   events: Awaited<ReturnType<typeof getAllEvents>>,

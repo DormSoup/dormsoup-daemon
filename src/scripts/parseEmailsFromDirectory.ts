@@ -4,6 +4,7 @@
 import { debugEmailToEvents } from "./utils";
 import fs from 'node:fs';
 
+// TODO: Comment this
 async function main(): Promise<void> {
     let directory: string;
     // just in case
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
     }
 }
 
+// TODO: comment this
 async function eventFromEmailFile(file: string){
     const contents = fs.readFileSync(file);
     const events = await debugEmailToEvents(contents);

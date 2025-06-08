@@ -124,6 +124,17 @@ export type JSONEvent  = {
     tags: Array<string>;
 };
 
+/**
+ * Logs the process of adding tags to a given event for debugging purposes.
+ *
+ * This function prints the event's title, the previously generated tags,
+ * and the generated tags after invoking the current implementation of `addTagsToEvent`.
+ *
+ * @param event - The previously generated event object to generate tags for. (this event's
+ * tags are compared to those that are generated after invoking the current implementation of 
+ * `addTagsToEvent`.)
+ * @returns A promise that resolves when the logging is complete.
+ */
 export async function debugAddTagsToEvent(event: JSONEvent): Promise<void> {
     console.log("Tagging Event:", event.title);
     const prevTags = event.tags
