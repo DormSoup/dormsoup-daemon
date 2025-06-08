@@ -31,8 +31,8 @@ export interface Event {
   duration: number;
 }
 
-export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel = 'aya:35b';
-export const CURRENT_EVENT_MODEL_DISPLAY_NAME = "SIPBLLMs (DeepSeek-R1-32B)";
+export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel =  "deepseek-r1:32b";
+export const CURRENT_EVENT_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_EVENT_MODEL})`;
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).

@@ -94,7 +94,8 @@ export async function debugPrimsaEmailToEvents(email: EmailWithEvents | EmailWit
   console.log("Extracted result:", result);
 
   if ("event" in email) {
-    console.log("Previously extracted events:", email.event ?? "None");
+    const events = email.event.map(({title, date, location, organizer, duration})=>({title, date, location, organizer, duration}))
+    console.log("Previously extracted events:", events ?? "None");
   } else {
     console.log("Previously extracted events: None");
   }
@@ -124,7 +125,6 @@ export type JSONEvent  = {
 };
 
 export async function debugAddTagsToEvent(event: JSONEvent): Promise<void> {
-    process.env.DEBUG_MODE = "true";
     console.log("Tagging Event:", event.title);
     const prevTags = event.tags
     const generatedTags = await addTagsToEvent(event);

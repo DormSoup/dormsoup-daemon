@@ -11,7 +11,7 @@ export type SIPBLLMsChatMessage = {
    content: string;
 };
 
-export type SIPBLLMsChatModel = "deepseek-r1:32b" | "mixtral" | 'aya:35b';
+export type SIPBLLMsChatModel = "deepseek-r1:32b" | "mixtral" | 'aya:35b' | 'exaone3.5:32b';
 
 export type SIPBLLMsEmbeddingModel = 'nomic-embed-text:latest';
 
@@ -76,7 +76,7 @@ function extractAndSanitizeJsonContent(content: string): string {
  *
  * @param messages - An array of SIPBLLMMessage objects to be sent to the LLM model.
  * @param jsonSchema - A JSON schema object defining the desired structure of the response.
- * @param model - The LLM model to use, either "deepseek-r1:32b" or "mixtral".
+ * @param model - The LLM model to use.
  * @returns A promise that resolves to the response by the model, a record of the desired structure.
  * @throws Will throw an error if the HTTP request fails or the response cannot be parsed.
  */
@@ -130,7 +130,7 @@ async function SIPBLLMsChatAPICall(body: SIPBLLMsChatRequestBody): Promise<Recor
  * and returns the response.
  *
  * @param messages - An array of SIPBLLMMessage objects to be sent to the LLM model.
- * @param model - The model to be used for the request. Can be either "deepseek-r1:32b" or "mixtral".
+ * @param model - The model to be used for the request.
  * @returns A promise that resolves to the response by the model, a string.
  * @throws Will throw an error if the HTTP request fails or if the response is not in the expected format.
  */
@@ -149,7 +149,7 @@ async function SIPBLLMsUnstructed(messages: Array<SIPBLLMsChatMessage>, model: S
  * and returns the response.
  *
  * @param messages - An array of SIPBLLMMessage objects to be processed.
- * @param model - The model to use for processing the messages. Can be either "deepseek-r1:32b" or "mixtral".
+ * @param model - The model to use for processing the messages.
  * @param jsonSchema - An optional JSON schema to validate the output against.
  * @returns A promise that resolves to a record of key-value pairs or a string, depending on whether a JSON schema is provided.
  */

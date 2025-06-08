@@ -14,16 +14,14 @@ import { Event } from "@prisma/client";
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
 async function main(): Promise<void> {
-    process.env.DEBUG_MODE = "true";
     const emailsWithEventsPath = 'testEmails/emails_with_events.json';
     const emailsWithEvents = JSON.parse(await fs.readFile(emailsWithEventsPath, "utf-8")) as EmailWithEvents[];
     
-    emailsWithEvents.forEach((email)=>
-        email.event
-        .forEach(event =>{
-            debugAddTagsToEvent(event);
-        })
-    );
+    for (const email of emailsWithEvents) {
+        for (const event of email.event) {
+            await debugAddTagsToEvent(event);
+        }
+    }
 }
 
 await main();

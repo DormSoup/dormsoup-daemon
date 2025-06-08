@@ -5,7 +5,7 @@ import { SIPBLLMs, SIPBLLMsChatModel} from "./SIPBLLMsUtils.js";
 import { JSONSchema7 } from "json-schema";
 import { JSONEvent } from "../scripts/utils.js";
 
-export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = 'aya:35b';
+export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = "deepseek-r1:32b";
 export const CURRENT_TAGGING_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_TAGGING_MODEL})`;
 
 type FormTag =
@@ -242,7 +242,7 @@ async function twoStagePrompt(
       { role: "system", content: systemPrompt },
       { role: "user", content: text }
     ],
-    'aya:35b'
+    CURRENT_SIPB_LLMS_TAGGING_MODEL,
   ) as string;
   const responseSecondStage: TagResponse  = await SIPBLLMs(
     [
@@ -255,7 +255,7 @@ async function twoStagePrompt(
           "Remember, you can only pick from the tags given above. Now respond with the tag(s) of your conclusion:"
       }
     ],
-    'aya:35b',
+    CURRENT_SIPB_LLMS_TAGGING_MODEL,
     schema
   ) as TagResponse;
   if (process.env.DEBUG_MODE) {
