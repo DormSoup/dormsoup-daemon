@@ -1,9 +1,22 @@
 /// Parse an email from standard input, thus avoiding to authenticate to Outlook/Office365
 
 // import { addTagsToEvent } from "../llm/eventToTags";
-import { debugEmailToEvents } from "./debugEmailParsing";
+import { generateEventTags } from "../llm/eventToTags";
+import { debugEmailToEvents, debugGenerateTags, eventFromEmailFile } from "./utils";
 import fs from 'node:fs';
 
+/**
+ * Parses an email file specified by the command line argument, extracts events, and generates tags for each event.
+ *
+ * The function determines the filename from the command line arguments. If the filename is "-", it reads from standard input.
+ * It reads the file contents, parses the email to extract events, and then generates tags for each event, logging the results.
+ *
+ * Usage:
+ *   npm run parseEmailFromFile <filename>
+ *   - <filename> can be a path to an .eml file or "-" to read from standard input.
+ *
+ * @returns {Promise<void>} A promise that resolves when the operation is complete.
+ */
 async function main(): Promise<void> {
     let filename: string;
     // just in case
@@ -18,22 +31,7 @@ async function main(): Promise<void> {
         process.exit(1);
     }
     const file = filename === "-" ? process.stdin.fd : filename;
-    const contents = fs.readFileSync(file);
-    const events = await debugEmailToEvents(contents);
-    console.log("Done parsing event date/time!");
-    
-    console.log("Parsing tags from file is a working progress...") //:D")
-    for (const event of events) {
-        // TODO: fix this.
-        // This doesn't actually work because Event from eventToTags.ts is a prisma type
-        //   but Event from emailToEvents.ts is a custom typescript type
-        //   and they have different fields, so the output of one cannot simply be used as
-        //   input of the other, and having to query the database to debugging the tagging
-        //   is annoying and should be unnecessary since this should be testable without need of
-        //   a database...
-
-        // console.log(await addTagsToEvent(event));
-    }
+    await eventFromEmailFile(file);
 }
 
 await main();

@@ -3,7 +3,7 @@ import { ImapFlow } from "imapflow";
 import readline from "readline/promises";
 
 import { authenticate } from "../auth.js";
-import { debugEmailToEvents } from "./debugEmailParsing.js";
+import { debugEmailToEvents } from "./utils.js";
 
 // Good test cases
 // Event with multiple times (same location): Ascension
@@ -16,6 +16,7 @@ import { debugEmailToEvents } from "./debugEmailParsing.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
+// Comment this
 async function main(): Promise<void> {
   process.env.DEBUG_MODE = "true";
   const auth = await authenticate();
@@ -51,7 +52,7 @@ async function main(): Promise<void> {
       },
       { uid: true }
     );
-    debugEmailToEvents(message.source);
+    debugEmailToEvents(message.source!);
   } finally {
     lock.release();
     await client.logout();

@@ -1,16 +1,27 @@
-import dedent from "dedent";
-import { ChatCompletionFunctions } from "openai";
-
+import { JSONSchema7 } from "json-schema";
+import { SIPBLLMs, SIPBLLMsChatModel } from "./SIPBLLMsUtils.js";
 import { SpecificDormspamProcessingLogger } from "../emailToEvents.js";
-import {
-  CHEAP_MODEL,
-  MODEL,
-  createChatCompletionWithRetry,
-  formatDateInET,
-  removeArtifacts
-} from "./utils.js";
+import { formatDateInET, removeArtifacts } from "./utils.js";
+import dedent from "dedent";
 
-export const CURRENT_MODEL_NAME = "GPT-4o-0901";
+interface HasEventResponse {
+  has_event: boolean;
+  rejected_reason: string;
+}
+
+interface EventResponse {
+  title: string;
+  time_in_the_day?: string;
+  date_time: string;
+  duration?: string;
+  location: string;
+  organizer: string;
+}
+
+interface ExtractEventsResponse {
+  rejected_reason: string;
+  events: Array<EventResponse>;
+}
 
 export interface Event {
   title: string;
@@ -19,6 +30,9 @@ export interface Event {
   organizer: string;
   duration: number;
 }
+
+export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel =  "deepseek-r1:32b";
+export const CURRENT_EVENT_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_EVENT_MODEL})`;
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
@@ -88,11 +102,7 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
-const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
-  name: "set_email_has_event",
-  description: "Decide if the email has events",
-  parameters: {
-    type: "object",
+const HAS_EVENT_PREDICATE_OUTPUT_SCHEMA: JSONSchema7 = {
     properties: {
       has_event: {
         type: "boolean",
@@ -104,15 +114,10 @@ const HAS_EVENT_PREDICATE_FUNCTION: ChatCompletionFunctions = {
           "The reason why the email does not contain any events. (e.g. Why you don't consider the email to be advertising for an event). If the email does contain events, leave this value as an empty string."
       }
     },
-    require: ["has_event", "rejected_reason"]
-  }
+    required: ["has_event", "rejected_reason"]
 };
 
-const EXTRACT_FUNCTION: ChatCompletionFunctions = {
-  name: "insert_extracted_properties_from_email",
-  description: "Insert the extracted properties from the given email",
-  parameters: {
-    type: "object",
+const EXTRACT_EVENT_OUTPUT_SCHEMA: JSONSchema7 = {
     properties: {
       rejected_reason: {
         type: "string",
@@ -152,23 +157,18 @@ const EXTRACT_FUNCTION: ChatCompletionFunctions = {
               description: "The organization hosting the event"
             }
           },
-          required: ["title", "date", "location", "organizer"]
+          required: ["title", "date_time", "location", "organizer"]
         }
       }
     },
     required: ["events", "rejected_reason"]
-  }
-};
+  };
 
 export type NonEmptyArray<T> = [T, ...T[]];
 
 export type ExtractFromEmailResult =
   | {
-      status: "rejected-by-gpt-3";
-      reason: string;
-    }
-  | {
-      status: "rejected-by-gpt-4";
+      status: "rejected-by-sipb-llms";
       reason: string;
     }
   | {
@@ -176,92 +176,18 @@ export type ExtractFromEmailResult =
       events: NonEmptyArray<Event>;
     }
   | {
-      status: "error-openai-network";
+      status: "error-sipb-llms-network";
       error: any;
     }
   | {
       status: "error-malformed-json";
       error: any;
-    };
-
-/**
- * Extracts the event information from an email.
- *
- * @param subject the subject of the email
- * @param body the body of the email
- * @param dateReceived the date the email was received. This is used to infer the date of the event if the email does not contain the information.
- * @returns an Event object. If the email does not contain the information or the LLM made mistakes, the value is "unknown".
- */
-export async function extractFromEmail(
-  subject: string,
-  body: string,
-  dateReceived: Date,
-  logger?: SpecificDormspamProcessingLogger
-): Promise<ExtractFromEmailResult> {
-  body = removeArtifacts(body);
-
-  let emailWithMetadata = dedent`
-    \`\`\`
-    Subject: ${subject}
-    Date Received: ${formatDateInET(dateReceived)}
-    Body:
-    ${body}
-    \`\`\`                
-  `;
-
-  if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
-
-  logger?.logBlock("assembled prompt", emailWithMetadata);
-
-  let response;
-
-  try {
-    logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
-    const responseIsEvent = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: PROMPT_INTRO_HAS_EVENT },
-        { role: "user", content: emailWithMetadata }
-      ],
-      functions: [HAS_EVENT_PREDICATE_FUNCTION],
-      function_call: { name: HAS_EVENT_PREDICATE_FUNCTION.name }
-    });
-
-    logger?.logBlock("is_event response", JSON.stringify(responseIsEvent));
-    // console.log(responseIsEvent);
-    if (!responseIsEvent["has_event"])
-      return { status: "rejected-by-gpt-3", reason: responseIsEvent["rejected_reason"] };
-
-    logger?.logBlock("extract prompt", PROMPT_INTRO);
-    response = await createChatCompletionWithRetry({
-      model: MODEL,
-      messages: [
-        { role: "system", content: PROMPT_INTRO },
-        { role: "user", content: emailWithMetadata }
-      ],
-      functions: [EXTRACT_FUNCTION],
-      function_call: { name: EXTRACT_FUNCTION.name }
-    });
-    logger?.logBlock("extract response", JSON.stringify(response));
-  } catch (error) {
-    return { status: "error-openai-network", error };
-  }
-
-  try {
-    const events = tryParseEventJSON(response);
-    if (events.length === 0 || response.rejected_reason)
-      return { status: "rejected-by-gpt-4", reason: response.rejected_reason };
-    return {
-      status: "admitted",
-      events: events as NonEmptyArray<Event>
-    };
-  } catch (error) {
-    return {
-      status: "error-malformed-json",
-      error
-    };
-  }
-}
+    }
+  |
+  {
+      status: "rejected-by-sipb-llms-step-2"
+      reason: string;
+  };
 
 /**
  * Tries to parse the JSON response from the LLM.
@@ -270,27 +196,130 @@ export async function extractFromEmail(
  * @param completionText The completion text from LLM.
  * @returns An event object.
  */
-function tryParseEventJSON(response: any): Event[] {
-  const events: { [key: string]: string }[] = response.events;
-  return events.flatMap((rawEvent) => {
-    try {
-      const err = (field: string) => {
-        throw new Error(`Missing field ${field}`);
-      };
-      const dateTime = new Date(rawEvent["date_time"]);
-      void dateTime.toISOString();
-      const duration = parseInt(rawEvent["duration"]);
-      return [
-        {
-          title: rawEvent["title"] ?? err("title"),
-          dateTime,
-          location: rawEvent["location"] ?? err("location"),
-          organizer: rawEvent["organizer"] ?? err("organizer"),
-          duration: Number.isInteger(duration) ? duration : 60
-        } as Event
-      ];
-    } catch {
-      return [];
-    }
-  });
+function tryParseEventJSON(response: ExtractEventsResponse): Event[] {
+    const events: EventResponse[] = response.events;
+    return events.flatMap((rawEvent) => {
+      try {
+        const err = (field: string) => {
+          throw new Error(`Missing field ${field}`);
+        };
+        const dateTime = new Date(rawEvent["date_time"]);
+        void dateTime.toISOString();
+        const duration = rawEvent["duration"] ? parseInt(rawEvent["duration"]): 60;
+        return [
+          {
+            title: rawEvent["title"] ?? err("title"),
+            dateTime,
+            location: rawEvent["location"] ?? err("location"),
+            organizer: rawEvent["organizer"] ?? err("organizer"),
+            duration: Number.isInteger(duration) ? duration : 60
+          } as Event
+        ];
+      } catch {
+        return [];
+      }
+    });
+  }
+  
+  /**
+ * Determines if an email contains an event using SIPB LLMs.
+ *
+ * @param emailWithMetadata - The email content along with its metadata.
+ * @returns A promise that resolves to a `HasEventResponse` indicating whether the email contains an event.
+ */
+async function isEvent(emailWithMetadata: string): Promise<HasEventResponse>{
+    return await SIPBLLMs(
+      [
+      { role: "system", content: PROMPT_INTRO_HAS_EVENT },
+      { role: "user", content: emailWithMetadata }
+      ],
+      CURRENT_SIPB_LLMS_EVENT_MODEL,
+      HAS_EVENT_PREDICATE_OUTPUT_SCHEMA) as HasEventResponse;
+  }
+  
+/**
+ * Extracts events from an email using SIPB LLMs.
+ *
+ * @param {string} emailWithMetadata - The email content along with its metadata.
+ * @returns {Promise<ExtractEventsResponse>} A promise that resolves to an ExtractEventsResponse object containing the extracted events.
+ */
+async function extractEvents(emailWithMetadata: string): Promise<ExtractEventsResponse>{
+  return await SIPBLLMs(
+    [
+    { role: "system", content: PROMPT_INTRO },
+    { role: "user", content: emailWithMetadata }
+    ],
+    CURRENT_SIPB_LLMS_EVENT_MODEL, 
+    EXTRACT_EVENT_OUTPUT_SCHEMA) as ExtractEventsResponse;
 }
+
+/**
+ * Extracts event information from an email's subject, body, and received date.
+ * 
+ * This function processes the email content, checks if the email contains an event,
+ * and attempts to extract structured event data using LLM-based prompts. It logs
+ * various stages of the process if a logger is provided.
+ * 
+ * @param subject - The subject line of the email.
+ * @param body - The body content of the email.
+ * @param dateReceived - The date and time the email was received.
+ * @param logger - (Optional) Logger for tracking processing steps and prompts.
+ * @returns A promise that resolves to an `ExtractFromEmailResult` indicating the extraction status,
+ *          extracted events (if any), or error information.
+ */
+export async function extractFromEmail(
+    subject: string,
+    body: string,
+    dateReceived: Date,
+    logger?: SpecificDormspamProcessingLogger
+  ): Promise<ExtractFromEmailResult> {
+    body = removeArtifacts(body);
+  
+    let emailWithMetadata = dedent`
+      \`\`\`
+      Subject: ${subject}
+      Date Received: ${formatDateInET(dateReceived)}
+      Body:
+      ${body}
+      \`\`\`                
+    `;
+  
+    if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
+  
+    logger?.logBlock("assembled prompt", emailWithMetadata);
+  
+    let response;
+  
+    try {
+      logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
+      const responseIsEvent: HasEventResponse = await isEvent(emailWithMetadata);
+      logger?.logBlock("is_event response", JSON.stringify(responseIsEvent));
+      if (!responseIsEvent["has_event"])
+        return { status: "rejected-by-sipb-llms", reason: responseIsEvent["rejected_reason"] };
+  
+      logger?.logBlock("extract prompt", PROMPT_INTRO);
+      response = await extractEvents(emailWithMetadata);
+      logger?.logBlock("extract response", JSON.stringify(response));
+    } catch (error) {
+      return { status: "error-sipb-llms-network", error };
+    }
+  
+    try {
+      let events = tryParseEventJSON(response);
+      if (events.length === 0) {
+        response = await extractEvents(emailWithMetadata);
+        events = tryParseEventJSON(response);
+        if (events.length === 0)
+          return { status: "rejected-by-sipb-llms-step-2", reason: response.rejected_reason };
+      }
+      return {
+        status: "admitted",
+        events: events as NonEmptyArray<Event>
+      };
+    } catch (error) {
+      return {
+        status: "error-malformed-json",
+        error
+      };
+    }
+  }

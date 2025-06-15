@@ -1,13 +1,8 @@
 import assert from "assert";
 import dotenv from "dotenv";
-import HttpStatus from "http-status-codes";
-import { RateLimiter } from "limiter-es6-compat";
-import { Configuration, CreateChatCompletionRequest, OpenAIApi } from "openai";
+import { generateEmbedding } from "./SIPBLLMsUtils";
 
 dotenv.config();
-
-export const CHEAP_MODEL = "gpt-4o-mini-2024-07-18";
-export const MODEL = "gpt-4o-2024-08-06";
 
 export interface Event {
   title: string;
@@ -16,113 +11,43 @@ export interface Event {
   organizer: string;
 }
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-assert(OPENAI_API_KEY !== undefined, "OPENAI_API_KEY environment variable must be set");
-
-const openai = new OpenAIApi(
-  new Configuration({
-    apiKey: OPENAI_API_KEY
-  })
-);
-
-type LLMRateLimiter = {
-  rpmLimiter: RateLimiter;
-  tpmLimiter: RateLimiter;
-};
-
-const GPT_3_LIMITER: LLMRateLimiter = {
-  rpmLimiter: new RateLimiter({ tokensPerInterval: 3500, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 60000, interval: "minute" })
-};
-
-const GPT_4_LIMITER: LLMRateLimiter = {
-  rpmLimiter: new RateLimiter({ tokensPerInterval: 200, interval: "minute" }),
-  tpmLimiter: new RateLimiter({ tokensPerInterval: 30000, interval: "minute" })
-};
-
-const MODEL_LIMITERS: { [modelName: string]: LLMRateLimiter } = {
-  "gpt-3.5-turbo-0613": GPT_3_LIMITER,
-  "gpt-3.5-turbo-16k-0613": GPT_3_LIMITER,
-  "gpt-4-0613": GPT_4_LIMITER,
-  CHEAP_MODEL: GPT_3_LIMITER,
-  MODEL: GPT_4_LIMITER
-};
-
+/**
+ * Estimates the number of tokens in a given text string.
+ *
+ * @param text - The input string to estimate token count for.
+ * @returns The estimated number of tokens in the input text.
+ */
 export function estimateTokens(text: string): number {
   const crudeEstimate = text.length / 4;
   const educatedEstimate = text.split(/\b/g).filter((word) => word.trim().length > 0).length / 0.75;
   return Math.ceil(Math.max(crudeEstimate, educatedEstimate));
 }
 
-function truncate(text: string, threshold: number = 100): string {
-  return text.length < threshold ? text : text.substring(0, Math.max(0, threshold - 4)) + " ...";
+/**
+ * Generates an embedding vector for a given title string by prefixing it with "clustering:". 
+ * (see https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
+ * @param text - The title text to embed.
+ * @returns A promise that resolves to an array of numbers representing the embedding vector.
+ */
+export async function createTitleEmbedding(text: string): Promise<number[]> {
+  const textToEmbed = `clustering: ${text}`
+  return generateEmbedding('nomic-embed-text:latest', textToEmbed);
 }
 
-export async function createChatCompletionWithRetry(
-  request: CreateChatCompletionRequest,
-  backOffTimeMs: number = 1000
-): Promise<any> {
-  let response;
-  const limiter = MODEL_LIMITERS[request.model];
-  const text = request.messages.map((msg) => msg.content).join("\n");
-  if (limiter !== undefined) {
-    const tokens = estimateTokens(text);
-    await limiter.rpmLimiter.removeTokens(1);
-    await limiter.tpmLimiter.removeTokens(tokens);
-  }
 
-  while (true) {
-    response = await openai.createChatCompletion(request, {
-      validateStatus: (status) => true
-    });
-    if (response.status === HttpStatus.OK) break;
-    if (
-      response.status === HttpStatus.TOO_MANY_REQUESTS ||
-      response.status === HttpStatus.SERVICE_UNAVAILABLE ||
-      response.status === HttpStatus.BAD_GATEWAY
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, backOffTimeMs));
-      backOffTimeMs = Math.min(20000, backOffTimeMs * 1.5);
-      console.warn(
-        `Request error, backing off in ${backOffTimeMs} ms. Request test ${truncate(text)}`,
-        response
-      );
-    } else if (response.status === HttpStatus.BAD_REQUEST) {
-      if (process.env.DEBUG_MODE) console.warn("Bad request: ", response);
-    } else {
-      console.log("Unexpected response: ", response);
-      throw new Error(`OpenAI API call failed with status ${response.status}: ${response}`);
-    }
-  }
-  const completion = response.data.choices[0];
-  assert(
-    completion.finish_reason === "stop" || completion.finish_reason === "function_call",
-    "OpenAI API call failed"
-  );
-  if (completion.message?.content) return completion.message?.content;
-  let completionArguments = completion.message?.function_call?.arguments;
-  assert(completionArguments !== undefined);
-  try {
-    return JSON.parse(completionArguments);
-  } catch (error) {
-    console.log("JSON parse error from parsing ", completionArguments);
-    throw error;
-  }
-}
-
-export async function createEmbedding(text: string): Promise<number[]> {
-  const response = await openai.createEmbedding({
-    model: "text-embedding-ada-002",
-    input: text
-  });
-  return response.data.data[0].embedding;
-}
-
+/**
+ * Removes all base64-encoded data segments from the input string.
+ *
+ * @param input - The string potentially containing base64-encoded data segments.
+ * @returns The input string with all base64-encoded data segments removed.
+ */
 export function removeBase64(input: string) {
+  // Searches for occurrence of `;base64,` marker in the input string.
   const startKeyword = ";base64,";
   const start = input.indexOf(";base64,");
   if (start === -1) return input;
   let end = start + startKeyword.length;
+  // Remove the subsequent base64-encoded data until a non-base64 character is found.
   while (end < input.length) {
     const charCode = input.charCodeAt(end);
     if (65 <= charCode && charCode <= 90) end++;
@@ -131,25 +56,65 @@ export function removeBase64(input: string) {
     else if (charCode === 43 || charCode === 47 || charCode === 61) end++;
     else break;
   }
+  // Repeated recursively until no more base64 segments are present.
   return removeBase64(input.slice(0, start) + input.slice(end));
 }
 
+/**
+ * Removes image tags from the input string that match the pattern `[cid:...]` or `[data:...]`.
+ *
+ * @param input - The string from which image tags should be removed.
+ * @returns The input string with all `[cid:...]` and `[data:...]` tags removed.
+ */
 export function removeImageTags(input: string) {
+  // searches for and removes any substrings enclosed in square brackets that start with either 
+  // `cid:` or `data:`, followed by any characters except a closing bracket.
   return input.replace(/\[(cid|data):[^\]]+\]/g, "");
 }
 
+/**
+ * Removes consecutive line breaks from the input string, reducing any sequence of three or more line breaks (optionally with whitespace)
+ * to just two line breaks.
+ *
+ * @param input - The string to process and normalize line breaks in.
+ * @returns The input string with no more than two consecutive line breaks.
+ */
 export function removeConsecutiveLinebreaks(input: string) {
   return input.replace(/(\n\s*){3,}/g, "\n\n");
 }
 
+/**
+ * Removes all URLs from the input string.
+ *
+ * @param input - The string from which URLs should be removed.
+ * @returns The input string with all URLs removed.
+ */
 export function removeURL(input: string) {
+  // Searches for and removes both plain URLs (e.g., "https://example.com")
+  // and URLs enclosed in square brackets (e.g., "[https://example.com]") from the given string.
   return input.replace(/(https?:\/\/[^\s]+)|(\[https?:\/\/[^\s]+\])/g, "");
 }
 
+/**
+ * Removes various unwanted artifacts from the input string, including base64 data,
+ * URLs, image tags, and consecutive line breaks.
+ *
+ * @param input - The string to clean up.
+ * @returns The cleaned string with artifacts removed.
+ */
 export function removeArtifacts(input: string) {
   return removeConsecutiveLinebreaks(removeImageTags(removeURL(removeBase64(input))));
 }
 
+/**
+ * Formats a given Date object into a string representing the date and time
+ * in the Eastern Time (ET) zone (America/New_York), using the "en-US" locale.
+ * The output includes year, month, day, hour, minute, and second, all in
+ * two-digit format where applicable, and uses a 24-hour clock.
+ *
+ * @param date - The Date object to format.
+ * @returns A string representing the formatted date and time in ET. (ex. "06/01/2024, 11:30:00")
+ */
 export function formatDateInET(date: Date) {
   return date.toLocaleString("en-US", {
     year: "numeric",

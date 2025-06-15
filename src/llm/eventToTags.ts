@@ -1,18 +1,57 @@
 import { Event } from "@prisma/client";
 import dedent from "dedent";
-import { ChatCompletionFunctions } from "openai";
+import { removeArtifacts } from "./utils.js";
+import { SIPBLLMs, SIPBLLMsChatModel} from "./SIPBLLMsUtils.js";
+import { JSONSchema7 } from "json-schema";
+import { JSONEvent } from "../scripts/utils.js";
 
-import { createChatCompletionWithRetry, removeArtifacts } from "./utils.js";
-import { CHEAP_MODEL } from "./utils.js";
-import { doSIPBLLMsCompletion } from "./SIPBLLMsUtils.js";
+export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = "deepseek-r1:32b";
+export const CURRENT_TAGGING_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_TAGGING_MODEL})`;
 
-export const CURRENT_MODEL_NAME = "Mixtral-GPT1.0"
-interface SIPBLLMContentTag {
-    content_tag_1?: string;
-    content_tag_2?: string;
-    justification?: string;
-}
+type FormTag =
+  | "Theater"
+  | "Concert"
+  | "Talk"
+  | "Study Break"
+  | "Movie Screening"
+  | "Game"
+  | "Sale"
+  | "Rally"
+  | "Dance"
+  | "Party"
+  | "Class Presentation";
 
+type ContentTag =
+  | "EECS"
+  | "AI"
+  | "Math"
+  | "Biology"
+  | "Finance"
+  | "Career"
+  | "East Asian"
+  | "Religion"
+  | "Queer";
+
+type AmenitiesTag =
+  | "Free Food"
+  | "Boba"
+  | "Food"
+  | "None";
+
+interface ContentTagResponse {
+    content_tag_1?: ContentTag;
+    content_tag_2?: ContentTag;
+};
+
+interface FormTagResponse {
+  form_tag: FormTag;
+};
+
+interface AmenitiesTagResponse {
+  amenities_tag: AmenitiesTag
+};
+
+type TagResponse = AmenitiesTagResponse | FormTagResponse | ContentTagResponse;
 
 const PROMPT_INTRO = dedent`
   You are a campus event tagger. Your job is to reason whether given tags apply to a specific event.
@@ -24,6 +63,7 @@ const PROMPT_INTRO = dedent`
 
 `;
 
+//---------------------- FORM TAG EXTRACTION  ----------------------//
 const ACCEPTABLE_FORM_TAGS = [
   "Theater",
   "Concert",
@@ -37,6 +77,17 @@ const ACCEPTABLE_FORM_TAGS = [
   "Party",
   "Class Presentation"
 ];
+
+const EVENT_FORM_TAG_OUTPUT_SCHEMA: JSONSchema7 = {
+  properties: {
+    form_tag: {
+      type: "string",
+      description: "The tag of the form of the event.",
+      enum: ACCEPTABLE_FORM_TAGS
+    }
+  },
+  required: ["form_tag"]
+};
 
 const FORM_TAG_PROMPT =
   PROMPT_INTRO +
@@ -62,22 +113,7 @@ const FORM_TAG_PROMPT =
 
   `;
 
-const EVENT_FORM_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_form",
-  description: "Add form tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      form_tag: {
-        type: "string",
-        description: "The tag of the form of the event.",
-        enum: ACCEPTABLE_FORM_TAGS
-      }
-    },
-    require: ["form_tag"]
-  }
-};
-
+//---------------------- CONTENT TAG EXTRACTION  ----------------------//
 const ACCEPTABLE_CONTENT_TAGS = [
   "EECS",
   "AI",
@@ -89,6 +125,22 @@ const ACCEPTABLE_CONTENT_TAGS = [
   "Religion",
   "Queer"
 ];
+
+const EVENT_CONTENT_TAG_OUTPUT_SCHEMA: JSONSchema7 = {
+  properties: {
+    content_tag_1: {
+      type: "string",
+      description: "The first tag of the content of the event. (not necessary)",
+      enum: ACCEPTABLE_CONTENT_TAGS
+    },
+    content_tag_2: {
+      type: "string",
+      description: "The second tag of the content of the event (not necessary).",
+      enum: ACCEPTABLE_CONTENT_TAGS
+    }
+  },
+  required: []
+}
 
 const CONTENT_TAG_PROMPT =
   PROMPT_INTRO +
@@ -112,13 +164,11 @@ const CONTENT_TAG_PROMPT =
   {
     "content_tag_1": "TAG_NAME",
     "content_tag_2": "TAG_NAME",
-    "justification": "Your reasoning for why these tags apply"
   }
 
   For one tag:
   {
     "content_tag_1": "TAG_NAME",
-    "justification": "Your reasoning for why this tag applies"
   }
 
   For no tags:
@@ -128,23 +178,28 @@ const CONTENT_TAG_PROMPT =
   {
     "content_tag_1": "AI",
     "content_tag_2": "EECS",
-    "justification": "This event is primarily about artificial intelligence algorithms and their implementation in computer systems"
   }
 
   DO NOT include any other text before or after the JSON object.
   `;
 
-const EVENT_CONTENT_TAG_GRAMMAR = dedent`
-  content-tag-1 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
-  content-tag-1-kv ::= "\"content_tag_1\"" space ":" space content-tag-1
-  content-tag-1-rest ::= ( "," space content-tag-2-kv )? ("," space justification-kv)?
-  content-tag-2 ::= "\"EECS\"" | "\"AI\"" | "\"Math\"" | "\"Biology\"" | "\"Finance\"" | "\"Career\"" | "\"East Asian\"" | "\"Religion\"" | "\"Queer\""
-  content-tag-2-kv ::= "\"content_tag_2\"" space ":" space content-tag-2
-  justification ::= "\\"" [^"]* "\\""
-  justification-kv ::= "\"justification\"" space ":" space justification
-  root ::= "{" space (content-tag-1-kv content-tag-1-rest | content-tag-2-kv ("," space justification-kv)?) "}" space
-  space ::= " "?
-`
+//---------------------- AMENITY TAG EXTRACTION  ----------------------//
+const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "Food", "None"];
+
+const EVENT_AMENITIES_TAG_OUTPUT_SCHEMA: JSONSchema7 = {
+  properties: {
+    amenities_tag: {
+      type: "string",
+      description: "The tag of the amenities of the event (not necessary).",
+      enum: ACCEPTABLE_AMENITIES_TAGS
+    },
+    type_of_food: {
+      type: "string",
+      description: "What food the event provides, if tagged with 'Free Food'."
+    }
+  },
+  required: ["amenities_tag", "type_of_food"]
+};
 
 const AMENITIES_TAG_PROMPT =
   PROMPT_INTRO +
@@ -155,113 +210,86 @@ const AMENITIES_TAG_PROMPT =
 
   If you think the email does not contain food, snacks, or boba, say why the event is unlikely to provide any edible items.
 
-  At the end of your reasoning, suggest a tag from ["Food", "Boba", "None"]. (Pick boba if the event provides both)
+  At the end of your reasoning, suggest a tag from [${ACCEPTABLE_AMENITIES_TAGS.join(", ")}]. (Pick boba if the event provides both)
 `;
 
-const ACCEPTABLE_AMENITIES_TAGS = ["Free Food", "Boba", "Food", "None"];
 
-const EVENT_AMENITIES_TAG_FUNCTION: ChatCompletionFunctions = {
-  name: "tag_event_amenities",
-  description: "Add amenities tag to event",
-  parameters: {
-    type: "object",
-    properties: {
-      amenities_tag: {
-        type: "string",
-        description: "The tag of the amenities of the event (not necessary).",
-        enum: ACCEPTABLE_AMENITIES_TAGS
-      },
-      type_of_food: {
-        type: "string",
-        description: "What food the event provides, if tagged with 'Free Food'."
+/**
+ * Executes a two-stage prompt process to extract tags from an event description.
+ * 
+ * The two-stage prompt system works as follows:
+ * - The first stage generates an initial unstructed response based on the event title and text.
+ * - The second stage asks for a structed response and ensures the returned tags are within the allowed set.
+ *
+ * @param event - The event object containing details about the event.
+ * @param text - The text input to be processed by the prompt.
+ * @param prompt - The system prompt template with a placeholder for the event title.
+ * @param schema - The JSON schema to structure the response of the second stage.
+ * @param allowed - An array of allowed tags that can be included in the final result.
+ * @returns A promise that resolves to an array of extracted tags that are allowed.
+ */
+async function twoStagePrompt(
+  title: string,
+  text: string,
+  prompt: string,
+  schema: JSONSchema7,
+  allowed: string[]
+): Promise<string[]> {
+  const results: string[] = [];
+  const systemPrompt = prompt.replace("{INSERT TITLE HERE}", title);
+  const responseFirstStage: string = await SIPBLLMs(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: text }
+    ],
+    CURRENT_SIPB_LLMS_TAGGING_MODEL,
+  ) as string;
+  const responseSecondStage: TagResponse  = await SIPBLLMs(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: text },
+      { role: "assistant", content: responseFirstStage },
+      {
+        role: "user",
+        content:
+          "Remember, you can only pick from the tags given above. Now respond with the tag(s) of your conclusion:"
       }
-    },
-    require: ["amenities_tag", "type_of_food"]
+    ],
+    CURRENT_SIPB_LLMS_TAGGING_MODEL,
+    schema
+  ) as TagResponse;
+  if (process.env.DEBUG_MODE) {
+    console.log("----------Extracted Tags----------");
+    console.log(responseSecondStage);
+    console.log("----------Justification---------");
+    console.log(responseFirstStage);
+    console.log("----------End Response----------");
   }
-};
+  for (const property of Object.keys(responseSecondStage)) {
+    const tag = responseSecondStage[property as keyof TagResponse];
+    if (allowed.includes(tag)) {
+      results.push(tag);
+    }
+  }
+  return results;
+}
 
+export type MinimalEvent = Pick<Event, "title" | "text">;
 
-export async function addTagsToEvent(event: Event): Promise<string[]> {
+/**
+ * Generates tags from an event.
+ *
+ * @param {Event} event - The event object containing the text and title to be processed.
+ * @returns {Promise<string[]>} A promise that resolves to an array of tags extracted from the event.
+*/
+export async function generateEventTags(event: MinimalEvent): Promise<string[]> {
   const text = removeArtifacts(event.text);
-
-  async function twoStagePrompt(
-    prompt: string,
-    fn: ChatCompletionFunctions,
-    allowed: string[]
-  ): Promise<string[]> {
-    const results: string[] = [];
-    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
-    const responseFirstStage = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text }
-      ],
-      temperature: 0
-    });
-    const responseSecondStage = await createChatCompletionWithRetry({
-      model: CHEAP_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text },
-        { role: "assistant", content: responseFirstStage },
-        {
-          role: "user",
-          content:
-            "Remember, you can only pick from the tags given above. Now call the function with the tag of your conclusion:"
-        }
-      ],
-      functions: [fn],
-      function_call: { name: fn.name },
-      temperature: 0
-    });
-    if (process.env.DEBUG_MODE) {
-      console.log("----------Extracted Tags----------");
-      console.log(responseSecondStage);
-      console.log("----------Justification---------");
-      console.log(responseFirstStage);
-      console.log("----------End Response----------");
-    }
-    for (let property in responseSecondStage)
-      if (allowed.includes(responseSecondStage[property]))
-        results.push(responseSecondStage[property]);
-    return results;
-  }
-
-  async function extractContentTags(prompt: string, grammar: string, allowed: string[]): Promise<string[]> {
-    const systemPrompt = prompt.replace("{INSERT TITLE HERE}", event.title);
-    try {
-      const response = await doSIPBLLMsCompletion(
-        `${systemPrompt}\n\`\`\`\n${text}\n\`\`\`\n\n---------------- Response --------------\n`,
-        grammar
-      ) as SIPBLLMContentTag;
-
-      const tags: Array<string> = [response.content_tag_1, response.content_tag_2]
-      .filter((tag): tag is string => tag !== undefined && allowed.includes(tag));
-
-      if (process.env.DEBUG_MODE) {
-        console.log("----------Extracted Content Tags----------");
-        console.log(tags);
-        console.log("----------Justification---------");
-        console.log(response["justification"]);
-        console.log("----------End Response----------");
-      }
-
-      return tags;
-    } catch (error) {
-      console.log(`Error with extracting tags for ${event.title}:`, error);
-      return [];
-    }
-  }
-
-  // TODO: Update all types of tags to use SIPB LLMs endpoint in doCompletion by invoking extractTags
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
-    twoStagePrompt(FORM_TAG_PROMPT, EVENT_FORM_TAG_FUNCTION, ACCEPTABLE_FORM_TAGS),
-    extractContentTags(CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_GRAMMAR, ACCEPTABLE_CONTENT_TAGS),
-    twoStagePrompt(AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_FUNCTION, ACCEPTABLE_AMENITIES_TAGS)
+    twoStagePrompt(event.title, text, FORM_TAG_PROMPT, EVENT_FORM_TAG_OUTPUT_SCHEMA, ACCEPTABLE_FORM_TAGS),
+    twoStagePrompt(event.title, text, CONTENT_TAG_PROMPT, EVENT_CONTENT_TAG_OUTPUT_SCHEMA, ACCEPTABLE_CONTENT_TAGS),
+    twoStagePrompt(event.title, text, AMENITIES_TAG_PROMPT, EVENT_AMENITIES_TAG_OUTPUT_SCHEMA, ACCEPTABLE_AMENITIES_TAGS)
   ]);
-
   let results = formTags.concat(contentTags).concat(amenitiesTags.filter((tag) => tag !== "None"));
   results = [...new Set(results)];
   return results;
-}
+};

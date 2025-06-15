@@ -21,6 +21,12 @@ type SendEmailOptions = {
   inReplyTo?: string;
 } & ({ text: string } | { html: string });
 
+/**
+ * Sends an email using the configured SMTP transport.
+ *
+ * @param opts - The options for the email to be sent, including recipient, subject, and content.
+ * @returns A promise that resolves when the email has been sent.
+ */
 export async function sendEmail(opts: SendEmailOptions): Promise<void> {
   await DORMSOUP_SMTP_TRANSPORT.sendMail({ ...opts, from: DORMSOUP_SENDER });
 }

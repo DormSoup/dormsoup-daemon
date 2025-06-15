@@ -1,7 +1,7 @@
 import assert from "assert";
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
-import { ParsedMail, simpleParser } from "mailparser";
+import { simpleParser } from "mailparser";
 
 import { processNewEmail } from "./emailToEvents";
 import { pushToSubscribers } from "./subscription";
@@ -15,7 +15,16 @@ const app = express();
 const port = 4001;
 app.use(express.json({ limit: "50mb" })); // Could be lowered, default is too low and was blocking
 
-// Remaining loop from main.ts
+
+/**
+ * Starts the background server process that logs the start time, ends any active console group,
+ * and sets up a recurring interval (every 60 seconds) to:
+ * - Push updates to subscribers
+ * - Flush embeddings
+ * - Synchronize events with Google Calendar
+ *
+ * @returns {void}
+ */
 const startServer = () => {
   console.log(`[${new Date().toISOString()}] Start pulling and parsing emails:`);
   console.groupEnd();
@@ -23,28 +32,29 @@ const startServer = () => {
     await pushToSubscribers();
     await flushEmbeddings();
     await syncGCal();
-  }, 1000 * 60); // Every minute.
+  }, 1000 * 60);
 };
 
 startServer();
 
+/**
+ * Handles incoming email POST requests from the mailscripts process.
+ */
 app.post("/eat", async (req: Request, res: Response) => {
-  let email: ParsedMail;
   try {
     if (MAIL_SCRIPTS_TOKEN !== req.body.token) {
       console.log("Got request, but token was invalid. This request will be ignored.");
       return;
     }
-    email = await simpleParser(req.body.email);
-    // return success
+    const email = await simpleParser(req.body.email);
+    console.log(`Got email, subject: "${email?.subject}". Processing...`);
+    processNewEmail(email);
     res.status(200).send("OK");
   } catch (e) {
     console.log(`Failed to parse email: ${e}`);
     res.status(400).send(`Dormsoup's simpleParser failed to parse email: ${e}`);
     return;
   }
-  console.log(`Got email, subject: "${email?.subject}" sending to processNewEmail.`);
-  processNewEmail(email);
 });
 
 app.listen(port, () => {
