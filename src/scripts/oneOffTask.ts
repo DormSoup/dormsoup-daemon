@@ -6,7 +6,7 @@ import nodemailerNTLMAuth from "nodemailer-ntlm-auth";
 import puppeteer from "puppeteer";
 
 import { authenticate } from "../auth.js";
-import { createEmbedding, removeArtifacts } from "../llm/utils.js";
+import { createTitleEmbedding, removeArtifacts } from "../llm/utils.js";
 import { sendEmail } from "../mailer.js";
 import {
   flushEmbeddings,

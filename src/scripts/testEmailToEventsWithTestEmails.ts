@@ -14,7 +14,13 @@ import { removeArtifacts } from "../llm/utils.js";
 // Selling tickets: 100 gecs
 // Looking for tickets: Looking for ADT Thursday5/18 9-11pm Tickets
 
-// TODO: Comment this
+
+/**
+ * Reads test emails (with and without events) from JSON files, processes the email bodies,
+ * and tests generating events from them.
+ *
+ * @returns {Promise<void>} A promise that resolves when all emails have been processed.
+ */
 async function main(): Promise<void> {
     const emailsWithEventsPath = 'testEmails/emails_with_events.json';
     const emailsWithoutEventsPath = 'testEmails/emails_without_events.json';

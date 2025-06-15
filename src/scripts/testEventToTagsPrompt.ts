@@ -1,9 +1,17 @@
 import { PrismaClient } from "@prisma/client";
 import readline from "readline/promises";
 
-import { addTagsToEvent } from "../llm/eventToTags";
+import { generateEventTags } from "../llm/eventToTags";
 
-// TODO: Comment this
+/**
+ * Runs an interactive CLI script to fetch events from the database and generate tags for them.
+ * 
+ * Prompts the user for an event name and whether to fetch all matching events or just the first one.
+ * For each selected event, prints the event details and the generated tags.
+ * 
+ * @async
+ * @returns {Promise<void>} Resolves when the script completes.
+ */
 export async function main() {
   process.env.DEBUG_MODE = "true";
   const prisma = new PrismaClient();
@@ -24,14 +32,14 @@ export async function main() {
       }
       for (const event of events) {
         console.log(event)
-        console.log(await addTagsToEvent(event))
+        console.log(await generateEventTags(event))
       }
     } else {
       const event = await prisma.event.findFirstOrThrow({
         where: { title: { contains: eventName, mode: "insensitive" } }
       });
       console.log(event);
-      console.log(await addTagsToEvent(event));
+      console.log(await generateEventTags(event));
     }
   } finally {
     readlineInterface.close();

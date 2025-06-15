@@ -4,7 +4,16 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-// TODO: Comment this
+/**
+ * Validates that the current environment is configured to use a development database.
+ * 
+ * This function checks the `DATABASE_URL` environment variable to ensure it is set and ends with 'dev',
+ * indicating a development database. If the database specified in the URL does not exist, it will be created,
+ * and the Prisma schema will be pushed to initialize the database structure.
+ * 
+ * @throws {Error} If `DATABASE_URL` is not set or does not end with 'dev'.
+ * @returns {Promise<void>} Resolves when the validation and setup are complete.
+ */
 async function validateDevDatabase() {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
@@ -36,6 +45,20 @@ async function validateDevDatabase() {
   }
 }
 
+/**
+ * Creates a test event in the development database for testing purposes.
+ * 
+ * This function performs the following steps:
+ * 1. Validates the development database connection.
+ * 2. Connects to the Prisma client.
+ * 3. Upserts a test email sender and email, ensuring required dependencies for the event.
+ * 4. Creates a test event with sample data, linking it to the created email.
+ * 5. Logs the created event to the console.
+ * 6. Ensures the Prisma client is disconnected after execution.
+ * 
+ * @async
+ * @returns {Promise<void>} Resolves when the test event has been created and logged.
+ */
 async function main() {
   await validateDevDatabase();
   

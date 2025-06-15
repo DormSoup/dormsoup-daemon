@@ -274,20 +274,15 @@ async function twoStagePrompt(
   return results;
 }
 
+export type MinimalEvent = Pick<Event, "title" | "text">;
+
 /**
- * Adds tags to an event by processing its text through a two-stage prompt system.
+ * Generates tags from an event.
  *
  * @param {Event} event - The event object containing the text and title to be processed.
  * @returns {Promise<string[]>} A promise that resolves to an array of tags extracted from the event.
- *
- * The function performs the following steps:
- * 1. Removes artifacts from the event text.
- * 2. Uses a two-stage prompt system to extract tags based on predefined schemas and allowed tags.
- * 3. Combines the tags from different categories (form, content, amenities) and removes duplicates.
- *
- * If `DEBUG_MODE` is enabled, the function logs the extracted tags and justifications to the console.
- */
-export async function addTagsToEvent(event: Event | JSONEvent): Promise<string[]> {
+*/
+export async function generateEventTags(event: MinimalEvent): Promise<string[]> {
   const text = removeArtifacts(event.text);
   const [formTags, contentTags, amenitiesTags] = await Promise.all([
     twoStagePrompt(event.title, text, FORM_TAG_PROMPT, EVENT_FORM_TAG_OUTPUT_SCHEMA, ACCEPTABLE_FORM_TAGS),

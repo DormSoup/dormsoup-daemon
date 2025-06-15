@@ -16,7 +16,6 @@
     "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
     "fetchTestEmails": "tsx src/scripts/fetchTestEmails.ts",
-    "oneOffTask": "tsx src/scripts/oneOffTask.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "create-test": "tsx src/scripts/createTestEvent.ts"
   },

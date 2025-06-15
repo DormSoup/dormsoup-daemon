@@ -184,10 +184,10 @@ export type ExtractFromEmailResult =
       error: any;
     }
   |
-    {
-        status: "rejected-by-sipb-llms-step-2"
-        reason: string;
-    };
+  {
+      status: "rejected-by-sipb-llms-step-2"
+      reason: string;
+  };
 
 /**
  * Tries to parse the JSON response from the LLM.
@@ -254,12 +254,18 @@ async function extractEvents(emailWithMetadata: string): Promise<ExtractEventsRe
 }
 
 /**
- * Extracts the event information from an email.
- *
- * @param subject the subject of the email
- * @param body the body of the email
- * @param dateReceived the date the email was received. This is used to infer the date of the event if the email does not contain the information.
- * @returns an Event object. If the email does not contain the information or the LLM made mistakes, the value is "unknown".
+ * Extracts event information from an email's subject, body, and received date.
+ * 
+ * This function processes the email content, checks if the email contains an event,
+ * and attempts to extract structured event data using LLM-based prompts. It logs
+ * various stages of the process if a logger is provided.
+ * 
+ * @param subject - The subject line of the email.
+ * @param body - The body content of the email.
+ * @param dateReceived - The date and time the email was received.
+ * @param logger - (Optional) Logger for tracking processing steps and prompts.
+ * @returns A promise that resolves to an `ExtractFromEmailResult` indicating the extraction status,
+ *          extracted events (if any), or error information.
  */
 export async function extractFromEmail(
     subject: string,

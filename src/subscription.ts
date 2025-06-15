@@ -34,8 +34,6 @@ function roundToDate(date: Date) {
  * and sends the composed email to each subscriber.
  *
  * Logs the process and skips sending if there are no events for the day.
- *
- * @async
  * @returns {Promise<void>} Resolves when the push process is complete.
  */
 export async function pushToSubscribers() {
@@ -56,7 +54,7 @@ export async function pushToSubscribers() {
   try {
     screenshot = await generateThumbnail(today);
   } catch {}
-  const content = await composeEmail(today, events, screenshot);
+  const content = await composeEmail(events, screenshot);
   const prisma = new PrismaClient();
   const users = (await prisma.emailSender.findMany({ where: { subscribed: true } })).map(
     ({ email }) => email
@@ -70,7 +68,16 @@ export async function pushToSubscribers() {
   console.log(`Pushed to ${users.length} subscribers`);
 }
 
-// TODO: Comment this
+
+/**
+ * Generates a thumbnail image (of the Dormsoup site) for the given date by launching a frontend server,
+ * rendering the page with Puppeteer, and extracting a specific region containing the date.
+ * The function processes the screenshot to adjust background colors and returns the result as a base64-encoded PNG.
+ *
+ * @param today - The date for which to generate the thumbnail.
+ * @returns A promise that resolves to a base64-encoded PNG image string.
+ * @throws If the target region containing the date is not found on the rendered page.
+ */
 async function generateThumbnail(today: Date): Promise<string> {
   const options: Intl.DateTimeFormatOptions = {
     weekday: "short",
@@ -125,14 +132,25 @@ async function generateThumbnail(today: Date): Promise<string> {
   }
 }
 
-// TODO: Comment this
+/**
+ * Retrieves all events occurring on the specified day.
+ *
+ * Queries the database for events whose `date` falls within the 24-hour period
+ * starting from the provided `today` date. The returned events include selected fields
+ * such as `id`, `title`, `date`, `location`, `organizer`, associated `tags`, 
+ * the `receivedAt` timestamp from the related `fromEmail`, and `gcalId`.
+ * Results are ordered by the number of likes in descending order.
+ *
+ * @param today - The date representing the start of the day for which to fetch events.
+ * @returns A promise that resolves to an array of event objects matching the criteria.
+ */
 export async function getAllEvents(today: Date) {
   const prisma = new PrismaClient();
   try {
     const events = await prisma.event.findMany({
       where: {
         date: {
-          gte: new Date(today.getTime() + 0 * 60 * 60 * 1000),
+          gte: new Date(today.getTime()),
           lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
         }
       },
@@ -179,9 +197,15 @@ const PUSH_EVENT_TEMPLATE = dedent`
   </p>
   `;
 
-// TODO: Comment this
+
+/**
+ * Composes an email with a subject and HTML body summarizing upcoming events.
+ *
+ * @param events - An array of event objects returned by `getAllEvents`.
+ * @param screenshot - (Optional) A base64-encoded image string to include in the email body.
+ * @returns An object containing the email subject and HTML content.
+ */
 async function composeEmail(
-  today: Date,
   events: Awaited<ReturnType<typeof getAllEvents>>,
   screenshot?: string
 ) {
