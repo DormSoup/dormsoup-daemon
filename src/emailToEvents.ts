@@ -14,7 +14,6 @@ import { sendEmail } from "./mailer.js";
 import {
   acquireLock,
   deleteEmbedding,
-  flushEmbeddings,
   getEmbedding,
   getKNearestNeighbors,
   releaseLock,
@@ -702,7 +701,7 @@ async function sendReply(senderAddress: string, messageId: string, events: Event
  * - `"former"` if `event1` is more recent than `event2`.
  * - `"latter"` if `event2` is more recent than `event1`.
  */
-function mergeEvents(
+export function mergeEvents(
   event1: { date: Date; location: string; fromEmail: null | { receivedAt: Date } },
   event2: { date: Date; location: string; fromEmail: null | { receivedAt: Date } }
 ): "unmergable-date" | "unmergable-location" | "former" | "latter" {

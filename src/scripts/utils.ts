@@ -1,10 +1,12 @@
 
 import { convert } from "html-to-text";
 import { Source, simpleParser } from "mailparser";
-import { isDormspam } from "../emailToEvents.js";
+import { isDormspam, mergeEvents } from "../emailToEvents.js";
 import { Event, ExtractFromEmailResult, extractFromEmail } from "../llm/emailToEvents";
 import { generateEventTags } from "../llm/eventToTags.js";
 import fs from 'node:fs';
+import { acquireLock, deleteEmbedding, getEmbedding, getKNearestNeighbors, releaseLock, upsertEmbedding } from "../vectordb.js";
+import { createTitleEmbedding } from "../llm/utils.js";
 
 type EventWithText = Event & { text: string }
 
@@ -168,4 +170,84 @@ export async function eventFromEmailFile(file: fs.PathOrFileDescriptor){
         const generatedTags = await generateEventTags(event);
         console.log(`The following tags were generated ${generatedTags}`)
     }
+}
+
+export type MinimalDedupEvent = (Pick<Event, 'title' | 'dateTime' | 'location'> & { fromEmail: { receivedAt: Date } });
+
+
+/**
+ * Attempts to deduplicate a new event against a list of existing events using embedding-based similarity.
+ * 
+ * For each event in `otherEvents`, generates an embedding for its title and indexes it.
+ * Then, generates an embedding for the `newEvent` title and finds its k-nearest neighbors.
+ * 
+ * For each neighbor:
+ * - If the neighbor event can be merged and the neighbor is newer, skips insertion of `newEvent`.
+ * - If the neighbor event can be merged and `newEvent` is newer, updates the embedding and associated metadata.
+ * - If no suitable duplicate is found, logs that no duplicate was detected.
+ * 
+ * @param newEvent - The event to check for duplication and potentially insert.
+ * @param otherEvents - The list of existing events to check against.
+ */
+export async function debugDedup(newEvent: MinimalDedupEvent, otherEvents: MinimalDedupEvent[]){
+    await acquireLock();
+    for (const [index, event] of otherEvents.entries()) {
+      const embedding = await createTitleEmbedding(event.title);
+      upsertEmbedding(event.title, embedding, { eventIds: [index] });
+      console.log(`Indexed event at position ${index}:`, event.title);
+    }
+
+    const embedding = await createTitleEmbedding(newEvent.title);
+    upsertEmbedding(newEvent.title, embedding, { eventIds: [] });
+
+    const KNearestNeighbors = getKNearestNeighbors(embedding, 3);
+
+    for (const [neighborTitle, neighborDistance] of KNearestNeighbors) {
+      const { metadata: neighborMetadata } = getEmbedding(neighborTitle)!;
+      for (const neighborEventId of neighborMetadata.eventIds) {
+
+        const otherEvent = otherEvents[neighborEventId];
+
+        if (otherEvent === null) {
+          console.warn("Event id ", neighborEventId, " is in embedding DB metadata but not in DB");
+          continue;
+        }
+
+        // check if we should merge with this neighborEvent of the neighbor
+        const merged = mergeEvents(
+          { ...newEvent, date: newEvent.dateTime},
+          { ...otherEvent, date: otherEvent.dateTime},
+        );
+
+        // if any neighborEvent is mergable with this event
+        // and is associated with a newer email, there is no need to insert the event into the
+        // db, it is likely a dupe and we have the newer version already
+        if (merged === "latter") {
+          console.log("Event ", newEvent, " not inserted because it is merged with ", otherEvent);
+          releaseLock();
+          return;
+        }
+
+        // if any neighborEvent is mergable with this event
+        // and the current email is the newer of the 2
+        if (merged === "former") {
+          // update the the embedding for this event title
+          // add the neighborEvent to the list of events associated with this event's title
+          upsertEmbedding(newEvent.title, embedding, { eventIds: [neighborEventId] });
+
+          // we've already checked this event 
+          neighborMetadata.eventIds = neighborMetadata.eventIds.filter((id) => id !== neighborEventId);
+          
+          // if the neighbor only had this neighborEvent, it is no longer nessecary since we
+          // have this event to represent this title
+          if (neighborMetadata.eventIds.length === 0) deleteEmbedding(neighborTitle);
+
+          console.log("Event ", newEvent, " updates previous event ", otherEvent);
+          releaseLock();
+          return;
+        }
+      }
+  }
+  console.log("No dupe for ", newEvent, " found ");
+  releaseLock();
 }

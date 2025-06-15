@@ -8,6 +8,7 @@
     "relay": "tsx src/scripts/localRelay.ts",
     "llm": "tsx src/llm.ts",
     "testEmailToEventsPrompt": "tsx src/scripts/testEmailToEventsPrompt.ts",
+    "testDedup": "tsx src/scripts/testDedup.ts",
     "testEmailToEventsWithTestEmails": "tsx src/scripts/testEmailToEventsWithTestEmails.ts",
     "testEventsToTagsWithTestEmails": "tsx src/scripts/testEventsToTagsWithTestEmails.ts",
     "testEventToTagsPrompt": "tsx src/scripts/testEventToTagsPrompt.ts",
