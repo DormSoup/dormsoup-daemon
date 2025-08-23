@@ -43,14 +43,31 @@ const PROMPT_INTRO_HAS_EVENT = dedent`
   Common events include:
   - Talks
   - Shows
+  - Concerts
+  - Performances
+  - Film screenings
+  - Workshops
+  - Hackathons
+  - Cultural celebrations
+  - Club meetings
+  - Conferences
   
   If the purpose of the email is not to advertise for or inform about events, respond False and give reasons why (what about the email made you respond false).
   Cases where the email is not advertising for an event include:
   - Senior sales
-  - Some individuals trying to resell tickets
+  - Individuals trying to resell tickets
   - Hiring staff (actors, volunteers) for upcoming events
   - Job applications
+  - Lost and found
+  - Housing or roommate searches
+  - Selling personal items
+  - General announcements with no specific date/time
   
+  When evaluating, look for specific details about:
+  1. A clear date and time
+  2. A specific location
+  3. An activity that multiple students can participate in
+
   The email you need to analyze is given below is delimited with triple backticks.
 
   Email text:
@@ -60,13 +77,13 @@ const PROMPT_INTRO = dedent`
   Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
   That email may or may not be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
 
-  If the purpose of the email is to advertise for events, identify the following details of events:
-  - The start time of the event (in HH:mm format)
-  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received. For example, if the event is at 6pm, use "2023-04-03T18:00:00.000Z", ignore timezone)
-  - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
-  - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
-  - The organization hosting the event (Be Short. Usually a club, however it is possible for individuals to organize events)
-  - The title of the event (Be Concise. Use Title Case. If organizer has a short name and provides context, include [ORGANIZER_NAME] before the title)
+  If the purpose of the email is to advertise for events, extract the following details for EACH event mentioned:
+  - The start time of the event (in HH:mm format, e.g., "18:00" for 6pm)
+  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If an exact date isn't mentioned, infer it from context or use the date received. For example, if the event is "this Friday at 6pm" and today is 2023-04-01, use "2023-04-07T18:00:00.000Z")
+  - The estimated duration of the event (an integer, number of minutes - use 60 if unspecified)
+  - The location of the event (For MIT campus locations, use building numbers and room numbers like "26-100" not "Room 26-100". Be specific about room numbers when provided. No need to specify MIT if it is on MIT campus.)
+  - The organization hosting the event (Be concise. Typically a club name, department, or individual organizers)
+  - The title of the event (Use Title Case. If the organizer has a short name that provides context, include [ORGANIZER_NAME] before the title for clarity)
 
   The output should resemble the following:
   ---------------- Sample Response (for formatting reference) --------------
@@ -77,25 +94,42 @@ const PROMPT_INTRO = dedent`
         "date_time": "2023-04-03T18:00:00.000Z",
         "duration": 90,
         "location": "3-333",
-        "organizer": "MIT UN"
-        "title": "[MIT UN] Immersive Storytelling",
+        "organizer": "MIT UN",
+        "title": "[MIT UN] Immersive Storytelling"
       }
     ]
   }
   ---------------- End Sample Response (for formatting reference) --------------
 
   Common events include:
-  - Talks
-  - Shows
+  - Talks and presentations
+  - Shows and performances
+  - Concerts and music events
+  - Film screenings
+  - Workshops and seminars
+  - Hackathons
+  - Cultural celebrations
+  - Club meetings with guest speakers
+  - Conferences and symposiums
 
-  However, if the purpose of the email is not to advertise for or inform about events, leave the value of events as an empty array, and give reasons why (what about the email made you respond with empty array),
+  Pay special attention to:
+  1. Emails may contain multiple events (create a separate event entry for each)
+  2. Time expressions like "tomorrow", "next Monday", "this weekend" (convert these to actual dates)
+  3. Location expressions specific to MIT (building numbers, named spaces)
+  4. Recurring events (focus on the next occurrence)
+
+  However, if the purpose of the email is not to advertise for or inform about events, leave the value of events as an empty array, and give reasons why (what about the email made you respond with empty array).
+  
   Cases where the email is not advertising for an event include:
-  - Senior sales
-  - Some individuals trying to resell tickets
+  - Senior sales or selling personal items
+  - Individuals trying to resell tickets
   - Hiring staff (actors, volunteers) for upcoming events
   - Job applications
+  - Lost and found
+  - Housing or roommate searches
+  - General announcements with no specific date/time
   
-  If the information is not present in the email, leave the value as "unknown".
+  If any specific field information is not present in the email, make a reasonable inference based on context. If you absolutely cannot determine a value, use "unknown" for string fields or reasonable defaults for others.
 
   The email you need to analyze is given below is delimited with triple backticks.
 

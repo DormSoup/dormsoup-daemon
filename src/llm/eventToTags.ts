@@ -95,17 +95,23 @@ const FORM_TAG_PROMPT =
   The email body might contain multiple events, but you only need to identify the form tag for the event above.
 
   Start with the form of the event. Possible event forms (choose the closest one) (after | is explanation, not part of tag):
-  - Theater (like a play or a musical, relating to theater)
-  - Concert
-  - Talk | (including workshops)
-  - Movie Screening
-  - Game
-  - Sale | (including fundraising)
-  - Dance | (dance show or dance party)
-  - Rally
-  - Party | (including carnivals and festivals)
-  - Class Presentation | (usually by students demonstrating their class projects)
-  - Study Break | (relaxing event usually with food)
+  - Theater | (plays, musicals, theatrical performances, improv shows)
+  - Concert | (musical performances, a cappella shows, orchestral performances)
+  - Talk | (lectures, seminars, workshops, panel discussions, information sessions)
+  - Movie Screening | (film showings, documentary screenings, movie nights)
+  - Game | (game nights, tournaments, competitions, hackathons, puzzlehunts)
+  - Sale | (fundraising events, charity drives, auctions, markets)
+  - Dance | (dance performances, dance workshops, dance parties)
+  - Rally | (demonstrations, protests, awareness campaigns)
+  - Party | (social gatherings, celebrations, carnivals, festivals, receptions)
+  - Class Presentation | (student project showcases, demos, thesis presentations)
+  - Study Break | (relaxing events with refreshments, de-stress activities)
+
+  Analyze each potential form tag systematically:
+  1. Consider the primary activity/format of the event
+  2. Review the descriptions for each tag to find the best match
+  3. For ambiguous cases, prioritize the most specific category that applies
+  4. If multiple tags seem applicable, choose the one that best captures the main focus
 
   Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it.
 
@@ -158,17 +164,24 @@ const CONTENT_TAG_PROMPT =
   - Religion
   - Queer | (only if LGBTQ+ is specifically mentioned. Mentioning of a queer color doesn't count.)
 
-  First analyze each tag, then output ONLY a JSON object in this exact format:
+  Analysis process:
+  1. Review the event title and description for subject matter keywords
+  2. Consider the organizer (departments/clubs often indicate the subject area)
+  3. Identify the primary academic or cultural domains being addressed
+  4. Select the most relevant tag(s) based on specific terminology in the text
+  5. For interdisciplinary events, select the two most prominent domains
+
+  First carefully analyze each tag with evidence from the event description, then output ONLY a JSON object in this exact format:
 
   For two tags:
   {
     "content_tag_1": "TAG_NAME",
-    "content_tag_2": "TAG_NAME",
+    "content_tag_2": "TAG_NAME"
   }
 
   For one tag:
   {
-    "content_tag_1": "TAG_NAME",
+    "content_tag_1": "TAG_NAME"
   }
 
   For no tags:
@@ -177,7 +190,7 @@ const CONTENT_TAG_PROMPT =
   Example output for an AI workshop event:
   {
     "content_tag_1": "AI",
-    "content_tag_2": "EECS",
+    "content_tag_2": "EECS"
   }
 
   DO NOT include any other text before or after the JSON object.
@@ -206,11 +219,23 @@ const AMENITIES_TAG_PROMPT =
   dedent`
   The email body might contain multiple events, but you only need to identify whether the specified event contains food or boba.
 
-  If you think the email contains food, snacks, or boba, output the part of the email that indicates whether the event contains food or boba.
+  Carefully analyze the event description for any mentions of:
+  - Free food, refreshments, or snacks
+  - Specific food items (pizza, cookies, etc.)
+  - Drinks, especially bubble tea or boba
+  - Terms like "provided", "served", "catered"
 
-  If you think the email does not contain food, snacks, or boba, say why the event is unlikely to provide any edible items.
+  Look for both explicit mentions ("Free pizza will be served") and implicit indications ("Join us for dinner and discussion").
 
-  At the end of your reasoning, suggest a tag from [${ACCEPTABLE_AMENITIES_TAGS.join(", ")}]. (Pick boba if the event provides both)
+  If you think the email mentions food, snacks, or boba, highlight the exact text that indicates this and explain your reasoning.
+
+  If you think the email does not mention food, snacks, or boba, explain why the event is unlikely to provide any edible items.
+
+  At the end of your reasoning, select the most appropriate tag from [${ACCEPTABLE_AMENITIES_TAGS.join(", ")}]:
+  - "Free Food" if food is explicitly mentioned as free
+  - "Boba" if bubble tea/boba is specifically mentioned (prioritize this if both food and boba are available)
+  - "Food" if food is mentioned but not explicitly free
+  - "None" if no food or drinks are mentioned
 `;
 
 
