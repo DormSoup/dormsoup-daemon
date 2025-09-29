@@ -31,7 +31,7 @@ export interface Event {
   duration: number;
 }
 
-export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel =  'gemma3:27b';
+export const CURRENT_SIPB_LLMS_EVENT_MODEL: SIPBLLMsChatModel =  'deepseek-r1:32b';
 export const CURRENT_EVENT_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_EVENT_MODEL})`;
 
 const PROMPT_INTRO_HAS_EVENT = dedent`
@@ -284,7 +284,7 @@ export async function extractFromEmail(
       \`\`\`                
     `;
   
-    if (process.env.DEBUG_MODE) console.log("Assembled prompt:", emailWithMetadata);
+    if (process.env.DEBUG_MODE === 'true') console.log("Assembled prompt:", emailWithMetadata);
   
     logger?.logBlock("assembled prompt", emailWithMetadata);
   
