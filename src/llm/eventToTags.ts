@@ -5,7 +5,7 @@ import { SIPBLLMs, SIPBLLMsChatModel} from "./SIPBLLMsUtils.js";
 import { JSONSchema7 } from "json-schema";
 import { JSONEvent } from "../scripts/utils.js";
 
-export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = "deepseek-r1:32b";
+export const CURRENT_SIPB_LLMS_TAGGING_MODEL: SIPBLLMsChatModel = 'deepseek-r1:32b';
 export const CURRENT_TAGGING_MODEL_DISPLAY_NAME = `SIPBLLMs (${CURRENT_SIPB_LLMS_TAGGING_MODEL})`;
 
 type FormTag =
@@ -19,7 +19,8 @@ type FormTag =
   | "Rally"
   | "Dance"
   | "Party"
-  | "Class Presentation";
+  | "Class Presentation"
+  | "Community Service";
 
 type ContentTag =
   | "EECS"
@@ -75,7 +76,8 @@ const ACCEPTABLE_FORM_TAGS = [
   "Rally",
   "Dance",
   "Party",
-  "Class Presentation"
+  "Class Presentation",
+  "Community Service"
 ];
 
 const EVENT_FORM_TAG_OUTPUT_SCHEMA: JSONSchema7 = {
@@ -106,6 +108,7 @@ const FORM_TAG_PROMPT =
   - Party | (including carnivals and festivals)
   - Class Presentation | (usually by students demonstrating their class projects)
   - Study Break | (relaxing event usually with food)
+  - Community Service
 
   Go through each tag above and give reasons whether each tag applies. Then finally give the tag you choose and why you choose it.
 
@@ -258,7 +261,7 @@ async function twoStagePrompt(
     CURRENT_SIPB_LLMS_TAGGING_MODEL,
     schema
   ) as TagResponse;
-  if (process.env.DEBUG_MODE) {
+  if (process.env.DEBUG_MODE === 'true') {
     console.log("----------Extracted Tags----------");
     console.log(responseSecondStage);
     console.log("----------Justification---------");

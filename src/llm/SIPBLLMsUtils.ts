@@ -11,7 +11,7 @@ export type SIPBLLMsChatMessage = {
    content: string;
 };
 
-export type SIPBLLMsChatModel = "deepseek-r1:32b" | "mixtral" | 'aya:35b' | 'exaone3.5:32b';
+export type SIPBLLMsChatModel = "deepseek-r1:32b" | "mixtral" | 'aya:35b' | 'exaone3.5:32b' | 'gemma3:27b';
 
 export type SIPBLLMsEmbeddingModel = 'nomic-embed-text:latest';
 
