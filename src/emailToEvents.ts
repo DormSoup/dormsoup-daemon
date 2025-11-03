@@ -652,7 +652,7 @@ const REPLY_EVENT_TEMPLATE = dedent`
   <p>
     Title: <b>{EVENT_TITLE}</b><br>
     Date / Time: {EVENT_TIME}<br>
-    Location: {EVENT_LOCATION}
+    Location: {EVENT_LOCATION}<br>
     Link on DormSoup: <a
     href="https://dormsoup.mit.edu?eventId={EVENT_ID}">dormsoup.mit.edu?eventId={EVENT_ID}</a>
   </p>
@@ -682,7 +682,7 @@ async function sendReply(senderAddress: string, messageId: string, events: Event
     return REPLY_EVENT_TEMPLATE.replace("{EVENT_TITLE}", event.title)
       .replace("{EVENT_TIME}", formattedTime)
       .replace("{EVENT_LOCATION}", event.location)
-      .replace("{EVENT_ID}", event.id.toString());
+      .replaceAll("{EVENT_ID}", event.id.toString());
   });
   const html = REPLY_TEMPLATE.replace("{EVENTS}", paragraphs.join("\n"));
   await sendEmail({
