@@ -654,7 +654,7 @@ const REPLY_EVENT_TEMPLATE = dedent`
     Date / Time: {EVENT_TIME}<br>
     Location: {EVENT_LOCATION}
     Link on DormSoup: <a
-    href="https://dormsoup.mit.edu?eventId={EVENT_ID}">dormsoup.mit.edu?={EVENT_ID}</a>
+    href="https://dormsoup.mit.edu?eventId={EVENT_ID}">dormsoup.mit.edu?eventId={EVENT_ID}</a>
   </p>
   `;
 
