@@ -14,6 +14,7 @@
     "testEventToTagsPrompt": "tsx src/scripts/testEventToTagsPrompt.ts",
     "parseEmailFromFile": "tsx src/scripts/parseEmailFromFile.ts",
     "parseEmailsFromDirectory": "tsx src/scripts/parseEmailsFromDirectory.ts",
+    "parseEmailsFromDirectoryIntoDB": "tsx src/scripts/parseEmailFromDirectoryIntoDB.ts",
     "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
     "fetchTestEmails": "tsx src/scripts/fetchTestEmails.ts",

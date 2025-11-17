@@ -102,6 +102,45 @@ const PROMPT_INTRO = dedent`
   Email text:
 `;
 
+const KNOWN_TO_HAVE_EVENT_PROMPT_INTRO = dedent`
+  Given in triple backticks is an email sent by an MIT student to the dorm spam mailing list (i.e. to all MIT undergrads).
+  That email is known to be advertising for one or multiple events. An event is defined as something that a group of MIT students could attend at a specific time and location (in or around MIT) typically lasting only a few hours.
+
+  The purpose of the email is to advertise for events, identify the following details of events:
+  - The start time of the event (in HH:mm format)
+  - The date_time of the event (in yyyy-MM-ddTHH:mm:ss format that can be recognized by JavaScript's Date constructor. If not mentioned, use time received. For example, if the event is at 6pm, use "2023-04-03T18:00:00.000Z", ignore timezone)
+  - The estimated duration of the event (an integer, number of minutes, 60 is unspecified)
+  - The location of the event (MIT campus often use building numbers and room numbers to refer to locations, in that case, just use numbers like "26-100" instead of "Room 26-100". Be specific. No need to specify MIT if it is on MIT campus.)
+  - The organization hosting the event (Be Short. Usually a club, however it is possible for individuals to organize events)
+  - The title of the event (Be Concise. Use Title Case. If organizer has a short name and provides context, include [ORGANIZER_NAME] before the title)
+
+  The output should resemble the following:
+  ---------------- Sample Response (for formatting reference) --------------
+  {
+    "events": [
+      {
+        "time_in_the_day": "18:00",
+        "date_time": "2023-04-03T18:00:00.000Z",
+        "duration": 90,
+        "location": "3-333",
+        "organizer": "MIT UN"
+        "title": "[MIT UN] Immersive Storytelling",
+      }
+    ]
+  }
+  ---------------- End Sample Response (for formatting reference) --------------
+
+  Common events include:
+  - Talks
+  - Shows
+  
+  If the information is not present in the email, leave the value as "unknown".
+
+  The email you need to analyze is given below is delimited with triple backticks.
+
+  Email text:
+`;
+
 const HAS_EVENT_PREDICATE_OUTPUT_SCHEMA: JSONSchema7 = {
     properties: {
       has_event: {
@@ -241,12 +280,13 @@ async function isEvent(emailWithMetadata: string): Promise<HasEventResponse>{
  * Extracts events from an email using SIPB LLMs.
  *
  * @param {string} emailWithMetadata - The email content along with its metadata.
+ * @param knownToHaveEvents - Indicates whether or not the email is known to be advertising for events.
  * @returns {Promise<ExtractEventsResponse>} A promise that resolves to an ExtractEventsResponse object containing the extracted events.
  */
-async function extractEvents(emailWithMetadata: string): Promise<ExtractEventsResponse>{
+async function extractEvents(emailWithMetadata: string, knownToHaveEvents: boolean = false): Promise<ExtractEventsResponse>{
   return await SIPBLLMs(
     [
-    { role: "system", content: PROMPT_INTRO },
+    { role: "system", content: knownToHaveEvents ? KNOWN_TO_HAVE_EVENT_PROMPT_INTRO : PROMPT_INTRO },
     { role: "user", content: emailWithMetadata }
     ],
     CURRENT_SIPB_LLMS_EVENT_MODEL, 
@@ -271,7 +311,8 @@ export async function extractFromEmail(
     subject: string,
     body: string,
     dateReceived: Date,
-    logger?: SpecificDormspamProcessingLogger
+    logger?: SpecificDormspamProcessingLogger,
+    knownToHaveEvents: boolean = false
   ): Promise<ExtractFromEmailResult> {
     body = removeArtifacts(body);
   
@@ -291,14 +332,15 @@ export async function extractFromEmail(
     let response;
   
     try {
-      logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
-      const responseIsEvent: HasEventResponse = await isEvent(emailWithMetadata);
-      logger?.logBlock("is_event response", JSON.stringify(responseIsEvent));
-      if (!responseIsEvent["has_event"])
-        return { status: "rejected-by-sipb-llms", reason: responseIsEvent["rejected_reason"] };
-  
+      if (!knownToHaveEvents){
+        logger?.logBlock("is_event prompt", PROMPT_INTRO_HAS_EVENT);
+        const responseIsEvent: HasEventResponse = await isEvent(emailWithMetadata);
+        logger?.logBlock("is_event response", JSON.stringify(responseIsEvent));
+        if (!responseIsEvent["has_event"])
+          return { status: "rejected-by-sipb-llms", reason: responseIsEvent["rejected_reason"] };
+      }
       logger?.logBlock("extract prompt", PROMPT_INTRO);
-      response = await extractEvents(emailWithMetadata);
+      response = await extractEvents(emailWithMetadata, knownToHaveEvents);
       logger?.logBlock("extract response", JSON.stringify(response));
     } catch (error) {
       return { status: "error-sipb-llms-network", error };
@@ -307,7 +349,7 @@ export async function extractFromEmail(
     try {
       let events = tryParseEventJSON(response);
       if (events.length === 0) {
-        response = await extractEvents(emailWithMetadata);
+        response = await extractEvents(emailWithMetadata, knownToHaveEvents);
         events = tryParseEventJSON(response);
         if (events.length === 0)
           return { status: "rejected-by-sipb-llms-step-2", reason: response.rejected_reason };

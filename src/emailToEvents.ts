@@ -64,8 +64,9 @@ const generateUID = (email: ParsedMail): number => {
  * adds the email to the database. If the email is recognized as an event, an event will be added
  * to the DB and tags will be added.
  * @param {ParsedMail} email The parsed email.
+ * @param knownToHaveEvent - Indicates whether or not the email is known to be advertising for events.
  */
-export async function processNewEmail(email: ParsedMail) {
+export async function processNewEmail(email: ParsedMail, knownToHaveEvents: boolean = false) {
   const prisma = new PrismaClient();
   try {
     const uid = generateUID(email);
@@ -81,7 +82,8 @@ export async function processNewEmail(email: ParsedMail) {
       uid,
       email,
       processingTasks,
-      logger
+      logger,
+      knownToHaveEvents
     ).then((value) => {
       if (value !== "dormspam-but-root-not-in-db") {
         const acryonyms: { [key in ProcessEmailResult]: string } = {
@@ -465,6 +467,7 @@ async function processGeneratedEvent(prisma: PrismaClient, event: GeneratedEvent
  * @param parsed - The parsed email object.
  * @param processingTasks - A map of message IDs to deferred processing tasks for concurrency control.
  * @param logger - Logger instance for email processing and dormspam events.
+ * @param knownToHaveEvents - Indicates whether or not the email is known to be advertising for events.
  * @returns A promise that resolves to a `ProcessEmailResult` indicating the outcome of processing.
  */
 async function processMail(
@@ -473,7 +476,8 @@ async function processMail(
   uid: number,
   parsed: ParsedMail,
   processingTasks: Map<string, Deferred<void>>,
-  logger: EmailProcessingLogger
+  logger: EmailProcessingLogger,
+  knownToHaveEvents: boolean = false
 ): Promise<ProcessEmailResult> {
   const receivedAt = parsed.date ?? new Date();
 
@@ -576,7 +580,7 @@ async function processMail(
 
     // try to extract events from the email
     // subject variable is checked by ignore email
-    const result = await extractFromEmail(subject!, text, receivedAt, dormspamLogger);
+    const result = await extractFromEmail(subject!, text, receivedAt, dormspamLogger, knownToHaveEvents);
 
     // if events weren't detected, respond accordingly
     switch (result.status) {
