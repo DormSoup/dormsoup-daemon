@@ -1,7 +1,10 @@
 node_modules
 package-lock.json
+
+# exclude any real dormspam used for testing
 testmails
 testEmails
+*.eml
 
 .env
 .token.json

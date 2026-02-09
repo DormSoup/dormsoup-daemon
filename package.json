@@ -18,7 +18,7 @@
     "deleteAllEvents": "tsx src/scripts/deleteAllEvents.ts",
     "deleteAllEmails": "tsx src/scripts/deleteAllEmails.ts",
     "fetchTestEmails": "tsx src/scripts/fetchTestEmails.ts",
-    "test": "jest",
+    "test": "vitest",
     "create-test": "tsx src/scripts/createTestEvent.ts",
     "TestEmailsToDatabase": "tsx src/scripts/TestEmailsToDatabase.ts"
   },
@@ -51,10 +51,10 @@
     "eslint-plugin-import": "^2.27.5",
     "eslint-plugin-n": "^15.7.0",
     "eslint-plugin-promise": "^6.1.1",
-    "jest": "^30.2.0",
     "prettier": "^2.8.7",
     "prisma": "<4.16.2",
-    "typescript": "^5.0.4"
+    "typescript": "^5.0.4",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@azure/msal-node": "^1.17.1",
